@@ -1,92 +1,67 @@
 package com.skillsync.skillsync_ai.userprofile.services;
 
-import com.skillsync.skillsync_ai.common.events.UserVerifiedEvent;
+import com.skillsync.skillsync_ai.common.events.ResumeUploadedEvent; // Assuming you have this record
+import com.skillsync.skillsync_ai.userprofile.dto.*;
 import com.skillsync.skillsync_ai.userprofile.entity.StudentProfile;
 import com.skillsync.skillsync_ai.userprofile.repo.StudentProfileRepository;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.modulith.events.ApplicationModuleListener;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class UserProfileService {
 
     private final StudentProfileRepository profileRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
-    /**
-     * SPRING MODULITH BOUNDARY:
-     * Listens for the UserVerifiedEvent from the Authentication module.
-     * Automatically creates an empty profile for the new user.
-     */
-    @ApplicationModuleListener
-    void onUserVerified(UserVerifiedEvent event) {
-        log.info("Received UserVerifiedEvent for User ID: {}. Initializing Student Profile...", event.userId());
-
-        // Extract a default name from the email (e.g., "john.doe@chitkara.edu.in" -> "John Doe")
-        String defaultName = extractNameFromEmail(event.email());
-
-        StudentProfile newProfile = StudentProfile.builder()
-                .userId(event.userId())
-                .fullName(defaultName)
-                .build();
-
-        profileRepository.save(newProfile);
-        log.info("Student Profile initialized successfully for User ID: {}", event.userId());
-    }
-
-    @Transactional(readOnly = true)
-    public StudentProfile getProfileByUserId(UUID userId) {
+    private StudentProfile getProfileOrThrow(UUID userId) {
         return profileRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("Profile not found for User ID: " + userId));
+                .orElseThrow(() -> new RuntimeException("Profile not found for user: " + userId));
     }
 
     @Transactional
-    public StudentProfile updateProfileBasicInfo(UUID userId, String fullName, String bio, Short gradYear, String major) {
-        StudentProfile profile = getProfileByUserId(userId);
-
-        if (fullName != null && !fullName.isBlank()) profile.setFullName(fullName);
-        if (bio != null) profile.setBio(bio);
-        if (gradYear != null) profile.setGraduationYear(gradYear);
-        if (major != null) profile.setMajor(major);
-
-        return profileRepository.save(profile);
-    }
-
-    @Transactional
-    public void updateResumeUrl(UUID userId, String secureUrl) {
-        StudentProfile profile = getProfileByUserId(userId);
-        profile.setResumeUrl(secureUrl);
-        profile.setResumeUploadedAt(java.time.Instant.now());
-        profileRepository.save(profile);
-
-        // TODO: Publish a 'ResumeUploadedEvent' here for the AI module to consume via Kafka
-    }
-
-    @Transactional
-    public void updateProfilePictureUrl(UUID userId, String secureUrl) {
-        StudentProfile profile = getProfileByUserId(userId);
-        profile.setProfilePictureUrl(secureUrl);
+    public void updateBasicInfo(UUID userId, UpdateProfileBasicInfoRequest request) {
+        StudentProfile profile = getProfileOrThrow(userId);
+        profile.setBio(request.bio());
+        profile.setMajor(request.major());
+        int year = request.graduationYear();
+        profile.setGraduationYear((short)year);
         profileRepository.save(profile);
     }
 
-    private String extractNameFromEmail(String email) {
-        if (email == null || !email.contains("@")) return "New Student";
-        String localPart = email.split("@")[0];
-        // Replace dots with spaces and capitalize (basic formatting)
-        String[] parts = localPart.split("\\.");
-        StringBuilder name = new StringBuilder();
-        for (String part : parts) {
-            if (!part.isEmpty()) {
-                name.append(Character.toUpperCase(part.charAt(0)))
-                        .append(part.substring(1).toLowerCase())
-                        .append(" ");
-            }
+    @Transactional
+    public void updateSocialLinks(UUID userId, UpdateSocialLinksRequest request) {
+        StudentProfile profile = getProfileOrThrow(userId);
+        profile.setLinkedinUrl(request.linkedinUrl());
+        profile.setGithubUrl(request.githubUrl());
+        profile.setPortfolioUrl(request.portfolioUrl());
+        profileRepository.save(profile);
+    }
+
+    @Transactional
+    public void updateResumeUrl(UUID userId, UpdateMediaUrlRequest request) {
+        StudentProfile profile = getProfileOrThrow(userId);
+
+        // IDEMPOTENCY CHECK: Only trigger AI if the URL actually changed
+        if (request.url().equals(profile.getResumeUrl())) {
+            return;
         }
-        return name.toString().trim();
+
+        profile.setResumeUrl(request.url());
+        profileRepository.save(profile);
+
+        // Shout into the void! The AI module will hear this and start parsing.
+        eventPublisher.publishEvent(new ResumeUploadedEvent(userId, request.url()));
+    }
+
+    @Transactional
+    public void updateAvatarUrl(UUID userId, UpdateMediaUrlRequest request) {
+        StudentProfile profile = getProfileOrThrow(userId);
+        profile.setProfilePictureUrl(request.url());
+        profileRepository.save(profile);
     }
 }

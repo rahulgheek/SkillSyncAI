@@ -1,5 +1,6 @@
 package com.skillsync.skillsync_ai.project.services;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.skillsync.skillsync_ai.project.dto.CreateProjectRequest;
 import com.skillsync.skillsync_ai.project.dto.CreateProjectRoleRequest;
 import com.skillsync.skillsync_ai.project.entity.Project;
@@ -28,6 +29,7 @@ public class ProjectManagementService {
     private final ProjectRoleRepository projectRoleRepository;
     private final TeamMemberRepository teamMemberRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final ObjectMapper objectMapper;
 
     @Transactional
     public Project createDraftProject(UUID ownerId, UUID collegeId, CreateProjectRequest request) {
@@ -90,8 +92,20 @@ public class ProjectManagementService {
 
         log.info("Project ID {} published for recruiting.", projectId);
 
-        // TODO: Publish ProjectCreatedEvent for the AI module to consume via Kafka for match generation
-        // eventPublisher.publishEvent(new ProjectCreatedEvent(publishedProject.getId()));
+        // Convert the required skills list to a JSON string for the AI module
+        String requiredSkillsJson = "[]";
+        try {
+            requiredSkillsJson = objectMapper.writeValueAsString(publishedProject.getRequiredSkills());
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            log.error("Failed to parse required skills to JSON for AI matching", e);
+        }
+
+        // Fire the exact event the AI module is listening for!
+        eventPublisher.publishEvent(new com.skillsync.skillsync_ai.common.events.ProjectPublishedEvent(
+                publishedProject.getId(),
+                publishedProject.getTitle(),
+                requiredSkillsJson
+        ));
 
         return publishedProject;
     }
