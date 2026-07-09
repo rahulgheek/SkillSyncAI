@@ -1,4 +1,4 @@
-package com.skillsync.skillsync_ai.userprofile.service;
+package com.skillsync.skillsync_ai.userprofile.services;
 
 import com.skillsync.skillsync_ai.userprofile.dto.PreviousProjectRequest;
 import com.skillsync.skillsync_ai.userprofile.dto.PreviousProjectResponse;
@@ -26,6 +26,7 @@ public class PreviousProjectService {
         StudentProfile profile = profileRepository.findByUserId(userId)
                 .orElseThrow(() -> new RuntimeException("Profile not found"));
 
+        // Validation: Ensure time isn't flowing backward
         if (request.endedOn() != null && request.startedOn() != null && request.endedOn().isBefore(request.startedOn())) {
             throw new IllegalArgumentException("End date cannot be before start date");
         }
@@ -45,11 +46,14 @@ public class PreviousProjectService {
 
     @Transactional
     public void deleteProject(UUID userId, UUID projectId) {
+        // We use the custom repository method to guarantee this user owns this project
         PreviousProject project = projectRepository.findByIdAndStudentProfile_UserId(projectId, userId)
                 .orElseThrow(() -> new RuntimeException("Project not found or unauthorized"));
+
         projectRepository.delete(project);
     }
 
+    @Transactional(readOnly = true)
     public List<PreviousProjectResponse> getProjectsForUser(UUID userId) {
         return projectRepository.findByStudentProfile_UserId(userId).stream()
                 .map(this::mapToResponse)
@@ -61,5 +65,23 @@ public class PreviousProjectService {
                 project.getId(), project.getTitle(), project.getDescription(),
                 project.getProjectUrl(), project.getStartedOn(), project.getEndedOn()
         );
+    }
+
+    @Transactional
+    public PreviousProjectResponse updateProject(UUID userId, UUID projectId, PreviousProjectRequest request) {
+        PreviousProject project = projectRepository.findByIdAndStudentProfile_UserId(projectId, userId)
+                .orElseThrow(() -> new RuntimeException("Project not found or unauthorized"));
+
+        if (request.endedOn() != null && request.startedOn() != null && request.endedOn().isBefore(request.startedOn())) {
+            throw new IllegalArgumentException("End date cannot be before start date");
+        }
+
+        project.setTitle(request.title());
+        project.setDescription(request.description());
+        project.setProjectUrl(request.projectUrl());
+        project.setStartedOn(request.startedOn());
+        project.setEndedOn(request.endedOn());
+
+        return mapToResponse(projectRepository.save(project));
     }
 }

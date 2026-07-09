@@ -1,7 +1,6 @@
 package com.skillsync.skillsync_ai.userprofile.controller;
 
-import com.skillsync.skillsync_ai.authentication.entity.User;
-import com.skillsync.skillsync_ai.userprofile.dto.AddSkillRequest;
+import com.skillsync.skillsync_ai.userprofile.dto.AddSkillRequest; // Assuming you have this record
 import com.skillsync.skillsync_ai.userprofile.entity.Skill;
 import com.skillsync.skillsync_ai.userprofile.entity.StudentSkill;
 import com.skillsync.skillsync_ai.userprofile.services.SkillManagementService;
@@ -15,7 +14,7 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/skills")
+@RequestMapping("/api/v1/skills") // Updated path for API versioning consistency
 @RequiredArgsConstructor
 public class SkillController {
 
@@ -32,18 +31,18 @@ public class SkillController {
 
     // Get the logged-in user's skills
     @GetMapping("/me")
-    public ResponseEntity<List<StudentSkill>> getMySkills(@AuthenticationPrincipal User currentUser) {
-        return ResponseEntity.ok(skillService.getStudentSkills(currentUser.getId()));
+    public ResponseEntity<List<StudentSkill>> getMySkills(@AuthenticationPrincipal UUID userId) {
+        return ResponseEntity.ok(skillService.getStudentSkills(userId));
     }
 
     // Add a skill to the logged-in user's profile
     @PostMapping("/me")
     public ResponseEntity<StudentSkill> addSkillToProfile(
-            @AuthenticationPrincipal User currentUser,
+            @AuthenticationPrincipal UUID userId,
             @Valid @RequestBody AddSkillRequest request) {
 
         StudentSkill addedSkill = skillService.addSkillToStudent(
-                currentUser.getId(),
+                userId,
                 request.skillId(),
                 request.level()
         );
@@ -53,10 +52,10 @@ public class SkillController {
     // Remove a skill from the logged-in user's profile
     @DeleteMapping("/me/{studentSkillId}")
     public ResponseEntity<String> removeSkillFromProfile(
-            @AuthenticationPrincipal User currentUser,
+            @AuthenticationPrincipal UUID userId,
             @PathVariable UUID studentSkillId) {
 
-        skillService.removeSkillFromStudent(currentUser.getId(), studentSkillId);
+        skillService.removeSkillFromStudent(userId, studentSkillId);
         return ResponseEntity.ok("Skill removed successfully.");
     }
 }

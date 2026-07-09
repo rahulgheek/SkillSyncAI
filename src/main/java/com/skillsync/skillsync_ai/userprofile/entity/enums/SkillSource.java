@@ -1,5 +1,5 @@
 package com.skillsync.skillsync_ai.userprofile.entity.enums;
 
 public enum SkillSource {
-    MANUAL, AI_INFERRED
+    MANUAL, AI_EXTRACTED
 }

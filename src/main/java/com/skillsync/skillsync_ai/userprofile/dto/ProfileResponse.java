@@ -14,5 +14,6 @@ public record ProfileResponse(
         String portfolioUrl,
         String major,
         Integer graduationYear,
-        List<PreviousProjectResponse> projects // Skills list can be added here depending on your Skill DTOs
+        List<PreviousProjectResponse> projects, // Skills list can be added here depending on your Skill DTOs
+        List<StudentSkillResponse> skills
 ) {}

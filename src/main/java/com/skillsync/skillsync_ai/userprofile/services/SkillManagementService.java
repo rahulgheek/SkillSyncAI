@@ -7,6 +7,7 @@ import com.skillsync.skillsync_ai.userprofile.entity.enums.SkillLevel;
 import com.skillsync.skillsync_ai.userprofile.entity.enums.SkillSource;
 import com.skillsync.skillsync_ai.userprofile.repo.SkillRepository;
 import com.skillsync.skillsync_ai.userprofile.repo.StudentSkillRepository;
+import com.skillsync.skillsync_ai.userprofile.services.UserProfileService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,7 +21,7 @@ public class SkillManagementService {
 
     private final SkillRepository skillRepository;
     private final StudentSkillRepository studentSkillRepository;
-    private final UserProfileService userProfileService; // Safe to call same-module services
+    private final UserProfileService userProfileService; // Direct module-to-module call
 
     @Transactional(readOnly = true)
     public List<Skill> searchGlobalSkills(String query) {
@@ -40,7 +41,7 @@ public class SkillManagementService {
         Skill skill = skillRepository.findById(skillId)
                 .orElseThrow(() -> new RuntimeException("Global skill not found."));
 
-        // Check if student already has this skill
+        // Check if student already has this skill mapped
         studentSkillRepository.findByStudentProfileIdAndSkillId(profile.getId(), skill.getId())
                 .ifPresent(s -> {
                     throw new RuntimeException("Student already has this skill listed.");
@@ -50,7 +51,7 @@ public class SkillManagementService {
                 .studentProfile(profile)
                 .skill(skill)
                 .level(level)
-                .source(SkillSource.MANUAL) // Manually added by the student
+                .source(SkillSource.MANUAL) // Change to AI_EXTRACTED when the AI module calls this
                 .build();
 
         return studentSkillRepository.save(newStudentSkill);
@@ -63,7 +64,7 @@ public class SkillManagementService {
         StudentSkill skillToRemove = studentSkillRepository.findById(studentSkillId)
                 .orElseThrow(() -> new RuntimeException("Student skill mapping not found."));
 
-        // Security check: ensure the skill actually belongs to the requesting user
+        // Security check: ensure the skill actually belongs to the user trying to delete it
         if (!skillToRemove.getStudentProfile().getId().equals(profile.getId())) {
             throw new RuntimeException("Unauthorized to modify this skill.");
         }

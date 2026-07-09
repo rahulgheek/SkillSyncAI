@@ -1,5 +1,6 @@
 package com.skillsync.skillsync_ai.userprofile.controller;
 
+import com.skillsync.skillsync_ai.userprofile.dto.ProfileResponse;
 import com.skillsync.skillsync_ai.userprofile.dto.UpdateMediaUrlRequest;
 import com.skillsync.skillsync_ai.userprofile.dto.UpdateProfileBasicInfoRequest;
 import com.skillsync.skillsync_ai.userprofile.dto.UpdateSocialLinksRequest;
@@ -18,6 +19,12 @@ import java.util.UUID;
 public class ProfileController {
 
     private final UserProfileService profileService;
+
+    // MISSING ENDPOINT ADDED: Fetch the entire dashboard profile (Info + Projects)
+    @GetMapping
+    public ResponseEntity<ProfileResponse> getMyProfile(@AuthenticationPrincipal UUID userId) {
+        return ResponseEntity.ok(profileService.getAggregatedProfile(userId));
+    }
 
     @PutMapping("/basic-info")
     public ResponseEntity<Void> updateBasicInfo(@AuthenticationPrincipal UUID userId,
