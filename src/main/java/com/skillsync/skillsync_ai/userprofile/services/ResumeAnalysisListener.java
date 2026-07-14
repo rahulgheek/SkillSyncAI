@@ -12,7 +12,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Optional;
 
 @Slf4j
 @Service
@@ -24,40 +27,40 @@ public class ResumeAnalysisListener {
     private final StudentSkillRepository studentSkillRepository;
 
     @ApplicationModuleListener
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void onResumeAnalyzed(ResumeAnalysisCompletedEvent event) {
         log.info("UserProfile module received AI extracted skills for User ID: {}", event.userId());
-
         StudentProfile profile = userProfileService.getProfileByUserId(event.userId());
 
         event.extractedSkills().forEach(extracted -> {
-            // 1. Find or create the global skill
             Skill globalSkill = skillRepository.findByNameIgnoreCase(extracted.skillName())
                     .orElseGet(() -> skillRepository.save(
-                            Skill.builder()
-                                    .name(extracted.skillName())
-                                    .category("AI_EXTRACTED")
-                                    .isActive(true)
-                                    .build()
+                            Skill.builder().name(extracted.skillName()).category("AI_EXTRACTED").isActive(true).build()
                     ));
 
-            // 2. Check if student already has this skill mapped
-            boolean alreadyHasSkill = studentSkillRepository
-                    .findByStudentProfileIdAndSkillId(profile.getId(), globalSkill.getId())
-                    .isPresent();
+            Optional<StudentSkill> existingSkill = studentSkillRepository.findByStudentProfileIdAndSkillId(profile.getId(), globalSkill.getId());
 
-            // 3. Map it if they don't have it
-            if (!alreadyHasSkill) {
-                StudentSkill newSkill = StudentSkill.builder()
-                        .studentProfile(profile)
-                        .skill(globalSkill)
-                        .level(SkillLevel.valueOf(extracted.inferredLevel().toUpperCase())) // Assuming AI returns BEGINNER, INTERMEDIATE, etc.
-                        .source(SkillSource.AI_EXTRACTED)
-                        .build();
-                studentSkillRepository.save(newSkill);
+            // FIX: Safe Enum Parsing
+            SkillLevel safeLevel;
+            try {
+                safeLevel = SkillLevel.valueOf(extracted.inferredLevel().toUpperCase());
+            } catch (Exception e) {
+                safeLevel = SkillLevel.BEGINNER; // Fallback if AI hallucinates a level
+            }
+
+            if (existingSkill.isPresent()) {
+                // FEATURE: Increase confidence! They claimed it manually, and AI verified it in their resume.
+                StudentSkill skill = existingSkill.get();
+                if (skill.getSource() == SkillSource.MANUAL) {
+                    skill.setSource(SkillSource.MANUAL_AND_AI_VERIFIED); // You must add this to your enum!
+                    studentSkillRepository.save(skill);
+                }
+            } else {
+                studentSkillRepository.save(StudentSkill.builder()
+                        .studentProfile(profile).skill(globalSkill)
+                        .level(safeLevel).source(SkillSource.AI_EXTRACTED)
+                        .build());
             }
         });
-
-        log.info("Successfully updated student skills from AI extraction for User ID: {}", event.userId());
     }
 }

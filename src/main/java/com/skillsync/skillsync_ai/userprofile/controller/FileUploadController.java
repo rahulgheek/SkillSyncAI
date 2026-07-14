@@ -1,5 +1,6 @@
 package com.skillsync.skillsync_ai.userprofile.controller;
 
+import com.skillsync.skillsync_ai.common.response.ApiResponse;
 import com.skillsync.skillsync_ai.userprofile.dto.UploadSignatureResponse;
 import com.skillsync.skillsync_ai.userprofile.services.CloudinarySignatureService;
 import lombok.RequiredArgsConstructor;
@@ -21,12 +22,12 @@ public class FileUploadController {
      * @param type e.g., "resume" or "avatar"
      */
     @GetMapping("/signature")
-    public ResponseEntity<UploadSignatureResponse> getUploadSignature(
+    public ResponseEntity<ApiResponse<UploadSignatureResponse>> getUploadSignature(
             @RequestParam(defaultValue = "misc") String type) {
 
         String folder = type.equalsIgnoreCase("resume") ? "skillsync/resumes" : "skillsync/avatars";
 
         UploadSignatureResponse response = signatureService.generateSignature(folder);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(ApiResponse.success("Signature generated successfully", response));
     }
 }

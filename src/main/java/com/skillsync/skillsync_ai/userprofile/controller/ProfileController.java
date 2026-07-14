@@ -1,5 +1,6 @@
 package com.skillsync.skillsync_ai.userprofile.controller;
 
+import com.skillsync.skillsync_ai.common.response.ApiResponse;
 import com.skillsync.skillsync_ai.userprofile.dto.ProfileResponse;
 import com.skillsync.skillsync_ai.userprofile.dto.UpdateMediaUrlRequest;
 import com.skillsync.skillsync_ai.userprofile.dto.UpdateProfileBasicInfoRequest;
@@ -20,37 +21,38 @@ public class ProfileController {
 
     private final UserProfileService profileService;
 
-    // MISSING ENDPOINT ADDED: Fetch the entire dashboard profile (Info + Projects)
+    // Fetch the entire dashboard profile (Info + Projects)
     @GetMapping
-    public ResponseEntity<ProfileResponse> getMyProfile(@AuthenticationPrincipal UUID userId) {
-        return ResponseEntity.ok(profileService.getAggregatedProfile(userId));
+    public ResponseEntity<ApiResponse<ProfileResponse>> getMyProfile(@AuthenticationPrincipal UUID userId) {
+        return ResponseEntity.ok(ApiResponse.success("Profile retrieved successfully",
+                profileService.getAggregatedProfile(userId)));
     }
 
     @PutMapping("/basic-info")
-    public ResponseEntity<Void> updateBasicInfo(@AuthenticationPrincipal UUID userId,
-                                                @Valid @RequestBody UpdateProfileBasicInfoRequest request) {
+    public ResponseEntity<ApiResponse<Void>> updateBasicInfo(@AuthenticationPrincipal UUID userId,
+                                                             @Valid @RequestBody UpdateProfileBasicInfoRequest request) {
         profileService.updateBasicInfo(userId, request);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(ApiResponse.success("Basic info updated successfully", null));
     }
 
     @PutMapping("/social-links")
-    public ResponseEntity<Void> updateSocialLinks(@AuthenticationPrincipal UUID userId,
-                                                  @Valid @RequestBody UpdateSocialLinksRequest request) {
+    public ResponseEntity<ApiResponse<Void>> updateSocialLinks(@AuthenticationPrincipal UUID userId,
+                                                               @Valid @RequestBody UpdateSocialLinksRequest request) {
         profileService.updateSocialLinks(userId, request);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(ApiResponse.success("Social links updated successfully", null));
     }
 
     @PutMapping("/resume")
-    public ResponseEntity<Void> updateResume(@AuthenticationPrincipal UUID userId,
-                                             @Valid @RequestBody UpdateMediaUrlRequest request) {
+    public ResponseEntity<ApiResponse<Void>> updateResume(@AuthenticationPrincipal UUID userId,
+                                                          @Valid @RequestBody UpdateMediaUrlRequest request) {
         profileService.updateResumeUrl(userId, request);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(ApiResponse.success("Resume URL updated successfully", null));
     }
 
     @PutMapping("/avatar")
-    public ResponseEntity<Void> updateAvatar(@AuthenticationPrincipal UUID userId,
-                                             @Valid @RequestBody UpdateMediaUrlRequest request) {
+    public ResponseEntity<ApiResponse<Void>> updateAvatar(@AuthenticationPrincipal UUID userId,
+                                                          @Valid @RequestBody UpdateMediaUrlRequest request) {
         profileService.updateAvatarUrl(userId, request);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(ApiResponse.success("Avatar URL updated successfully", null));
     }
 }

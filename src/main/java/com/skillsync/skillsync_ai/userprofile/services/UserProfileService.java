@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -108,5 +109,17 @@ public class UserProfileService {
                 projects,
                 skills // Return them to the frontend
         );
+    }
+
+    @Transactional(readOnly = true)
+    public Map<UUID, String> getAllUserSkillsForMatching() {
+        return studentSkillRepository.findAll().stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        ss -> ss.getStudentProfile().getUserId(),
+                        java.util.stream.Collectors.mapping(
+                                ss -> ss.getSkill().getName() + " (" + ss.getLevel().name() + ")",
+                                java.util.stream.Collectors.joining(", ")
+                        )
+                ));
     }
 }
