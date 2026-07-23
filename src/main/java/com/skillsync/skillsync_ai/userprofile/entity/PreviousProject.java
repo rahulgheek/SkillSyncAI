@@ -47,6 +47,14 @@ public class PreviousProject {
     @Column(name = "ended_on")
     private LocalDate endedOn;
 
+    @ElementCollection
+    @CollectionTable(name = "previous_project_tech_stack", schema = "profile", joinColumns = @JoinColumn(name = "project_id"))
+    @Column(name = "tech")
+    private java.util.List<String> techStack;
+
+    @Column(name = "github_url", columnDefinition = "TEXT")
+    private String githubUrl;
+
     // --- Auditing & Soft Delete Fields ---
 
     @CreatedDate

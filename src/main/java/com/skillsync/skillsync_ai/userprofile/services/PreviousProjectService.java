@@ -38,6 +38,8 @@ public class PreviousProjectService {
                 .projectUrl(request.projectUrl())
                 .startedOn(request.startedOn())
                 .endedOn(request.endedOn())
+                .techStack(request.techStack())
+                .githubUrl(request.githubUrl())
                 .build();
 
         PreviousProject saved = projectRepository.save(project);
@@ -63,7 +65,8 @@ public class PreviousProjectService {
     private PreviousProjectResponse mapToResponse(PreviousProject project) {
         return new PreviousProjectResponse(
                 project.getId(), project.getTitle(), project.getDescription(),
-                project.getProjectUrl(), project.getStartedOn(), project.getEndedOn()
+                project.getProjectUrl(), project.getStartedOn(), project.getEndedOn(),
+                project.getTechStack(), project.getGithubUrl()
         );
     }
 
@@ -81,6 +84,8 @@ public class PreviousProjectService {
         project.setProjectUrl(request.projectUrl());
         project.setStartedOn(request.startedOn());
         project.setEndedOn(request.endedOn());
+        project.setTechStack(request.techStack());
+        project.setGithubUrl(request.githubUrl());
 
         return mapToResponse(projectRepository.save(project));
     }

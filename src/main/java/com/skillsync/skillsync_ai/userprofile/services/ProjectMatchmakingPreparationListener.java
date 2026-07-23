@@ -43,7 +43,10 @@ public class ProjectMatchmakingPreparationListener {
                 ));
 
         List<CandidateProfileForAi> candidates = groupedSkills.entrySet().stream()
-                .map(e -> new CandidateProfileForAi(e.getKey(), e.getValue()))
+                .map(e -> {
+                    UUID studentProfileId = rawSkills.stream().filter(p -> p.getUserId().equals(e.getKey())).findFirst().get().getStudentProfileId();
+                    return new CandidateProfileForAi(e.getKey(), studentProfileId, e.getValue());
+                })
                 .toList();
 
         eventPublisher.publishEvent(new CandidateBatchReadyForAiEvent(

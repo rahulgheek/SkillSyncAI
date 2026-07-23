@@ -17,6 +17,9 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/projects")
 @RequiredArgsConstructor
@@ -46,6 +49,7 @@ public class ProjectController {
     public ResponseEntity<ApiResponse<Void>> deleteProject(
             @AuthenticationPrincipal User currentUser,
             @PathVariable UUID projectId) {
+        log.info("User {} is permanently deleting project {}", currentUser.getEmail(), projectId);
         projectService.deleteProject(currentUser.getId(), projectId);
         return ResponseEntity.ok(ApiResponse.success("Project deleted successfully", null));
     }
@@ -67,7 +71,7 @@ public class ProjectController {
     }
 
     @GetMapping("/{projectId}")
-    public ResponseEntity<ApiResponse<ProjectResponse>> getProjectDetails(@PathVariable UUID projectId) {
+    public ResponseEntity<ApiResponse<ProjectDetailsResponse>> getProjectDetails(@PathVariable UUID projectId) {
         return ResponseEntity.ok(ApiResponse.success("Project retrieved", projectService.getProjectDetails(projectId)));
     }
 

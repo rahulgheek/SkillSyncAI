@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import com.skillsync.skillsync_ai.common.exception.ResourceNotFoundException;
 
 @Service
 @RequiredArgsConstructor
@@ -25,12 +26,30 @@ public class UserProfileService {
 
     private StudentProfile getProfileOrThrow(UUID userId) {
         return profileRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("Profile not found for user: " + userId));
+                .orElseThrow(() -> new ResourceNotFoundException("Profile not found for user: " + userId));
     }
 
     @Transactional(readOnly = true)
     public StudentProfile getProfileByUserId(UUID userId) {
         return getProfileOrThrow(userId);
+    }
+
+    @Transactional
+    public ProfileResponse createProfile(UUID userId, UpdateProfileBasicInfoRequest request) {
+        if (profileRepository.findByUserId(userId).isPresent()) {
+            throw new RuntimeException("Profile already exists for user: " + userId);
+        }
+        StudentProfile profile = new StudentProfile();
+        profile.setUserId(userId);
+        profile.setFullName(request.fullName());
+        profile.setBio(request.bio());
+        profile.setMajor(request.major());
+
+        if (request.graduationYear() != null) {
+            profile.setGraduationYear(request.graduationYear().shortValue());
+        }
+        profileRepository.save(profile);
+        return getAggregatedProfile(userId);
     }
 
     @Transactional
@@ -87,6 +106,7 @@ public class UserProfileService {
         List<StudentSkillResponse> skills = studentSkillRepository.findAllByStudentProfileId(profile.getId())
                 .stream()
                 .map(ss -> new StudentSkillResponse(
+                        ss.getId(),
                         ss.getSkill().getId(),
                         ss.getSkill().getName(),
                         ss.getLevel().name(),

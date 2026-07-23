@@ -23,34 +23,41 @@ public class ProfileController {
 
     // Fetch the entire dashboard profile (Info + Projects)
     @GetMapping
-    public ResponseEntity<ApiResponse<ProfileResponse>> getMyProfile(@AuthenticationPrincipal UUID userId) {
+    public ResponseEntity<ApiResponse<ProfileResponse>> getMyProfile(@AuthenticationPrincipal(expression = "id") UUID userId) {
         return ResponseEntity.ok(ApiResponse.success("Profile retrieved successfully",
                 profileService.getAggregatedProfile(userId)));
     }
 
+    @PostMapping
+    public ResponseEntity<ApiResponse<ProfileResponse>> createProfile(@AuthenticationPrincipal(expression = "id") UUID userId,
+                                                                      @Valid @RequestBody UpdateProfileBasicInfoRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Profile created successfully",
+                profileService.createProfile(userId, request)));
+    }
+
     @PutMapping("/basic-info")
-    public ResponseEntity<ApiResponse<Void>> updateBasicInfo(@AuthenticationPrincipal UUID userId,
+    public ResponseEntity<ApiResponse<Void>> updateBasicInfo(@AuthenticationPrincipal(expression = "id") UUID userId,
                                                              @Valid @RequestBody UpdateProfileBasicInfoRequest request) {
         profileService.updateBasicInfo(userId, request);
         return ResponseEntity.ok(ApiResponse.success("Basic info updated successfully", null));
     }
 
     @PutMapping("/social-links")
-    public ResponseEntity<ApiResponse<Void>> updateSocialLinks(@AuthenticationPrincipal UUID userId,
+    public ResponseEntity<ApiResponse<Void>> updateSocialLinks(@AuthenticationPrincipal(expression = "id") UUID userId,
                                                                @Valid @RequestBody UpdateSocialLinksRequest request) {
         profileService.updateSocialLinks(userId, request);
         return ResponseEntity.ok(ApiResponse.success("Social links updated successfully", null));
     }
 
     @PutMapping("/resume")
-    public ResponseEntity<ApiResponse<Void>> updateResume(@AuthenticationPrincipal UUID userId,
+    public ResponseEntity<ApiResponse<Void>> updateResume(@AuthenticationPrincipal(expression = "id") UUID userId,
                                                           @Valid @RequestBody UpdateMediaUrlRequest request) {
         profileService.updateResumeUrl(userId, request);
         return ResponseEntity.ok(ApiResponse.success("Resume URL updated successfully", null));
     }
 
     @PutMapping("/avatar")
-    public ResponseEntity<ApiResponse<Void>> updateAvatar(@AuthenticationPrincipal UUID userId,
+    public ResponseEntity<ApiResponse<Void>> updateAvatar(@AuthenticationPrincipal(expression = "id") UUID userId,
                                                           @Valid @RequestBody UpdateMediaUrlRequest request) {
         profileService.updateAvatarUrl(userId, request);
         return ResponseEntity.ok(ApiResponse.success("Avatar URL updated successfully", null));

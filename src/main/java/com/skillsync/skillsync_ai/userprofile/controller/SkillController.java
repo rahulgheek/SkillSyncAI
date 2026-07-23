@@ -33,7 +33,7 @@ public class SkillController {
 
     // Get the logged-in user's skills
     @GetMapping("/me")
-    public ResponseEntity<ApiResponse<List<StudentSkill>>> getMySkills(@AuthenticationPrincipal UUID userId) {
+    public ResponseEntity<ApiResponse<List<StudentSkill>>> getMySkills(@AuthenticationPrincipal(expression = "id") UUID userId) {
         return ResponseEntity.ok(ApiResponse.success("User skills retrieved successfully",
                 skillService.getStudentSkills(userId)));
     }
@@ -41,7 +41,7 @@ public class SkillController {
     // Add a skill to the logged-in user's profile
     @PostMapping("/me")
     public ResponseEntity<ApiResponse<StudentSkill>> addSkillToProfile(
-            @AuthenticationPrincipal UUID userId,
+            @AuthenticationPrincipal(expression = "id") UUID userId,
             @Valid @RequestBody AddSkillRequest request) {
 
         StudentSkill addedSkill = skillService.addSkillToStudent(
@@ -55,7 +55,7 @@ public class SkillController {
     // Remove a skill from the logged-in user's profile
     @DeleteMapping("/me/{studentSkillId}")
     public ResponseEntity<ApiResponse<Void>> removeSkillFromProfile(
-            @AuthenticationPrincipal UUID userId,
+            @AuthenticationPrincipal(expression = "id") UUID userId,
             @PathVariable UUID studentSkillId) {
 
         skillService.removeSkillFromStudent(userId, studentSkillId);

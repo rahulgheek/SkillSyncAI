@@ -10,6 +10,8 @@ import com.skillsync.skillsync_ai.project.entity.enums.ProjectStatus;
 import com.skillsync.skillsync_ai.project.repo.ProjectRepository;
 import com.skillsync.skillsync_ai.project.repo.ProjectRoleRepository;
 import com.skillsync.skillsync_ai.project.repo.TeamMemberRepository;
+import com.skillsync.skillsync_ai.userprofile.repo.StudentProfileRepository;
+import com.skillsync.skillsync_ai.userprofile.entity.StudentProfile;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -31,6 +33,7 @@ public class ProjectManagementService {
     private final ProjectRepository projectRepository;
     private final ProjectRoleRepository projectRoleRepository;
     private final TeamMemberRepository teamMemberRepository;
+    private final StudentProfileRepository studentProfileRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
@@ -127,14 +130,15 @@ public class ProjectManagementService {
         }
         // ---------------------------------------
 
-        project.setStatus(ProjectStatus.RECRUITING);
-        Project publishedProject = projectRepository.save(project);
-
         // --- NEW BEHAVIOR: Aggregate all required skills from the roles for the AI ---
         List<com.skillsync.skillsync_ai.project.entity.enums.RequiredSkill> allRequiredSkills = roles.stream()
                 .flatMap(role -> role.getRequiredSkills().stream())
                 .distinct() // Remove duplicates if multiple roles need the same skill
                 .collect(Collectors.toList());
+        
+        project.setRequiredSkills(allRequiredSkills);
+        project.setStatus(ProjectStatus.RECRUITING);
+        Project publishedProject = projectRepository.save(project);
 
         String requiredSkillsJson = "[]";
         try {
@@ -156,10 +160,16 @@ public class ProjectManagementService {
     // --- PHASE 2: FEEDS & AGGREGATION ---
 
     @Transactional(readOnly = true)
-    public ProjectResponse getProjectDetails(UUID projectId) {
+    public ProjectDetailsResponse getProjectDetails(UUID projectId) {
         Project project = projectRepository.findById(projectId)
                 .orElseThrow(() -> new IllegalArgumentException("Project not found."));
-        return mapToProjectResponse(project);
+                
+        StudentProfile ownerProfile = studentProfileRepository.findByUserId(project.getOwnerId())
+                .orElse(null);
+                
+        int activeMemberCount = teamMemberRepository.findAllByProjectIdAndStatus(projectId, MemberStatus.ACTIVE).size();
+
+        return mapToProjectDetailsResponse(project, ownerProfile, activeMemberCount);
     }
 
     @Transactional(readOnly = true)
@@ -293,6 +303,23 @@ public class ProjectManagementService {
     private ProjectResponse mapToProjectResponse(Project p) {
         return new ProjectResponse(p.getId(), p.getOwnerId(), p.getCollegeId(), p.getTitle(), p.getDescription(),
                 p.getStatus(), p.getRequiredSkills(), p.getMaxTeamSize(), p.getApplicationDeadline(), p.getCreatedAt());
+    }
+
+    private ProjectDetailsResponse mapToProjectDetailsResponse(Project p, StudentProfile owner, int memberCount) {
+        ProjectDetailsResponse.OwnerInfo ownerInfo = null;
+        if (owner != null) {
+            ownerInfo = new ProjectDetailsResponse.OwnerInfo(
+                    owner.getFullName(),
+                    owner.getProfilePictureUrl(),
+                    owner.getMajor(),
+                    owner.getGraduationYear()
+            );
+        }
+        return new ProjectDetailsResponse(
+                p.getId(), p.getOwnerId(), p.getCollegeId(), p.getTitle(), p.getDescription(),
+                p.getStatus(), p.getRequiredSkills(), p.getMaxTeamSize(), memberCount,
+                p.getApplicationDeadline(), p.getCreatedAt(), ownerInfo
+        );
     }
 
     private ProjectRoleResponse mapToRoleResponse(ProjectRole r) {

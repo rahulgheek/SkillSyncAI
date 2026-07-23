@@ -14,11 +14,20 @@ public interface StudentSkillRepository extends JpaRepository<StudentSkill, UUID
     Optional<StudentSkill> findByStudentProfileIdAndSkillId(UUID studentProfileId, UUID skillId);
 
     @org.springframework.data.jpa.repository.Query(
-            "SELECT p.userId as userId, s.name as skillName, ss.level as skillLevel " +
+            "SELECT p.userId as userId, p.id as studentProfileId, s.name as skillName, ss.level as skillLevel " +
                     "FROM StudentSkill ss " +
                     "JOIN ss.studentProfile p " +
                     "JOIN ss.skill s " +
                     "WHERE p.deletedAt IS NULL" // Filters out inactive/deleted profiles
     )
     java.util.List<StudentSkillProjection> findAllActiveStudentSkills();
+
+    @org.springframework.data.jpa.repository.Query(
+            "SELECT p.userId as userId, p.id as studentProfileId, s.name as skillName, ss.level as skillLevel " +
+                    "FROM StudentSkill ss " +
+                    "JOIN ss.studentProfile p " +
+                    "JOIN ss.skill s " +
+                    "WHERE p.deletedAt IS NULL AND p.userId IN :userIds"
+    )
+    java.util.List<StudentSkillProjection> findSkillsForUsers(@org.springframework.data.repository.query.Param("userIds") java.util.List<java.util.UUID> userIds);
 }
