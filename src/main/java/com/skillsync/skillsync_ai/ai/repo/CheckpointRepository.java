@@ -9,5 +9,9 @@ import java.util.UUID;
 
 @Repository
 public interface CheckpointRepository extends JpaRepository<Checkpoint, UUID> {
+
+    // Spring now perfectly understands that Checkpoint -> Roadmap -> id
     List<Checkpoint> findAllByRoadmapIdOrderByOrderIndexAsc(UUID roadmapId);
+
+    List<Checkpoint> findByRoadmapId(UUID roadmapId);
 }

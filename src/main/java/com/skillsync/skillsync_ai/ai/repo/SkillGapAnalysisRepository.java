@@ -9,5 +9,9 @@ import java.util.UUID;
 
 @Repository
 public interface SkillGapAnalysisRepository extends JpaRepository<SkillGapAnalysis, UUID> {
+
     Optional<SkillGapAnalysis> findByUserIdAndProjectId(UUID userId, UUID projectId);
+
+    // ADD THIS NEW METHOD:
+    Optional<SkillGapAnalysis> findTopByUserIdOrderByCreatedAtDesc(UUID userId);
 }

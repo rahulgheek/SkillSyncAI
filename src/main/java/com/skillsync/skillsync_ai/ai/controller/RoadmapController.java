@@ -29,6 +29,42 @@ public class RoadmapController {
                         roadmapService.generateRoadmapFromGap(currentUser.getId(), skillGapId)));
     }
 
+    @GetMapping("/active")
+    public ResponseEntity<ApiResponse<Roadmap>> getActiveRoadmap(@AuthenticationPrincipal User currentUser) {
+        Roadmap roadmap = roadmapService.getActiveRoadmap(currentUser.getId());
+        if (roadmap == null) {
+            return ResponseEntity.ok(ApiResponse.success("No active roadmap found", null));
+        }
+        return ResponseEntity.ok(ApiResponse.success("Active roadmap retrieved", roadmap));
+    }
+
+    public record CustomRoadmapRequest(
+            String targetRole,
+            String currentKnowledge,
+            String knowledgeGaps
+    ) {}
+
+    @PostMapping("/generate-custom")
+    public ResponseEntity<ApiResponse<Roadmap>> generateCustomRoadmap(
+            @AuthenticationPrincipal User currentUser,
+            @RequestBody CustomRoadmapRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Custom AI Roadmap generated successfully",
+                        roadmapService.generateCustomRoadmap(currentUser.getId(), request)));
+    }
+
+    public record RoadmapChatRequest(String message) {}
+    public record RoadmapChatResponse(String reply) {}
+
+    @PostMapping("/{roadmapId}/chat")
+    public ResponseEntity<ApiResponse<RoadmapChatResponse>> chatWithRoadmap(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable UUID roadmapId,
+            @RequestBody RoadmapChatRequest request) {
+        String reply = roadmapService.chatWithRoadmapAI(currentUser.getId(), roadmapId, request.message());
+        return ResponseEntity.ok(ApiResponse.success("Success", new RoadmapChatResponse(reply)));
+    }
+
     @PatchMapping("/checkpoints/{checkpointId}/status")
     public ResponseEntity<ApiResponse<Void>> updateCheckpointStatus(
             @AuthenticationPrincipal User currentUser,

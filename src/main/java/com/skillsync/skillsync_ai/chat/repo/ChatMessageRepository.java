@@ -15,4 +15,7 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
 
     // Custom query for the AI context window
     List<ChatMessage> findTop30ByConversationIdOrderByCreatedAtDesc(UUID conversationId);
+
+    @org.springframework.data.jpa.repository.Query("SELECT cm FROM ChatMessage cm JOIN Conversation c ON cm.conversationId = c.id WHERE c.userId = :userId ORDER BY cm.createdAt DESC")
+    List<ChatMessage> findRecentMessagesByUserId(@org.springframework.data.repository.query.Param("userId") UUID userId, Pageable pageable);
 }

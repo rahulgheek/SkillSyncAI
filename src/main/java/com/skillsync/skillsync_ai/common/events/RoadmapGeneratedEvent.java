@@ -4,7 +4,9 @@ import com.skillsync.skillsync_ai.common.enums.TaskPriority;
 
 import java.time.Instant;
 import java.util.List;
+
 import java.util.UUID;
+import com.skillsync.skillsync_ai.todo.dto.SubtaskDto;
 
 public record RoadmapGeneratedEvent(
         UUID userId,
@@ -18,6 +20,7 @@ public record RoadmapGeneratedEvent(
             String description,
             short orderIndex,
             Instant dueDate,        // UPGRADED: AI calculates the exact date
-            TaskPriority priority   // UPGRADED: Strict typing, no parsing needed!
+            TaskPriority priority,   // UPGRADED: Strict typing, no parsing needed!
+            List<SubtaskDto> subtasks
     ) {}
 }

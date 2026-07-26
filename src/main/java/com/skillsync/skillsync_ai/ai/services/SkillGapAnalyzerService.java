@@ -19,9 +19,12 @@ public class SkillGapAnalyzerService {
     public void onCandidateBatchReady(CandidateBatchReadyForAiEvent event) {
         log.info("AI Module received {} candidates to score for Project ID: {}", event.candidates().size(), event.projectId());
 
-        for (CandidateProfileForAi candidate : event.candidates()) {
-            // Each iteration delegates to a new method that spins up its own safe, isolated transaction
-            gapProcessor.processCandidate(candidate, event.projectId(), event.requiredSkillsJson());
+        int batchSize = 25;
+        for (int i = 0; i < event.candidates().size(); i += batchSize) {
+            int end = Math.min(i + batchSize, event.candidates().size());
+            java.util.List<CandidateProfileForAi> batch = event.candidates().subList(i, end);
+            
+            gapProcessor.processCandidateBatch(batch, event.projectId(), event.requiredSkillsJson());
         }
 
         log.info("Batch AI processing completed for Project ID: {}", event.projectId());

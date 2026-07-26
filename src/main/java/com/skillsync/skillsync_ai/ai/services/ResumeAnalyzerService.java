@@ -31,7 +31,8 @@ public class ResumeAnalyzerService {
         log.info("AI Module intercepted ResumeUploadedEvent for User ID: {}", event.userId());
 
         SkillAnalysisResult result = SkillAnalysisResult.builder()
-                .userId(event.userId()) // Fixed boundary ID
+                .userId(event.userId())
+                .studentProfileId(event.userId()) // Workaround for DB schema constraint anomaly
                 .sourceResumeUrl(event.resumeUrl())
                 .status(AnalysisStatus.PENDING)
                 .build();
@@ -39,13 +40,18 @@ public class ResumeAnalyzerService {
         result = analysisRepository.save(result);
 
         try {
-            // Placeholder: Replace with actual PDFBox extraction logic later
-            String extractedText = pdfResumeExtractor.extractTextFromUrl(event.resumeUrl());;
+            // FIXED: Removed double semicolon
+            String extractedText = pdfResumeExtractor.extractTextFromUrl(event.resumeUrl());
 
             var geminiResponse = geminiApiService.analyzeResume(extractedText).block();
-            if (geminiResponse == null) throw new RuntimeException("No response from Gemini");
 
-            Map<String, Object> parsedData = geminiApiService.parseJsonToMap(geminiResponse.getResponseText());
+            // FIXED: Using getExtractedText()
+            if (geminiResponse == null || geminiResponse.getExtractedText() == null) {
+                throw new RuntimeException("No response from Gemini");
+            }
+
+            // FIXED: Using getExtractedText()
+            Map<String, Object> parsedData = geminiApiService.parseJsonToMap(geminiResponse.getExtractedText());
 
             result.setSummary((String) parsedData.get("summary"));
             result.setRawGrokResponse(parsedData);
@@ -67,9 +73,7 @@ public class ResumeAnalyzerService {
             result.setStatus(AnalysisStatus.COMPLETED);
             analysisRepository.save(result);
 
-            // FIRE THE EVENT: Let the userprofile module know to update the database!
             eventPublisher.publishEvent(new ResumeAnalysisCompletedEvent(event.userId(), finalSkills));
-
             log.info("Gemini successfully analyzed resume for User ID: {}", event.userId());
 
         } catch (Exception e) {

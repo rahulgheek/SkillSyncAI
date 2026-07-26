@@ -13,6 +13,7 @@ import java.util.UUID;
 public class ChatGatewayImpl implements ChatGateway {
 
     private final ConversationRepository conversationRepository;
+    private final com.skillsync.skillsync_ai.chat.repo.ChatMessageRepository chatMessageRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -22,5 +23,15 @@ public class ChatGatewayImpl implements ChatGateway {
 
         // CHANGED: Returning the new ChatMetrics record!
         return new ChatMetrics(totalConversations);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.List<String> getRecentChatHistory(UUID userId, int limit) {
+        org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(0, limit);
+        return chatMessageRepository.findRecentMessagesByUserId(userId, pageable)
+                .stream()
+                .map(msg -> msg.getRole() + ": " + msg.getContent())
+                .collect(java.util.stream.Collectors.toList());
     }
 }

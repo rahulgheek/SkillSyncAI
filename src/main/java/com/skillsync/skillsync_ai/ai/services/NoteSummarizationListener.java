@@ -36,11 +36,13 @@ public class NoteSummarizationListener {
 
             var geminiResponse = geminiApiService.summarizeNote(contentToProcess).block();
 
-            if (geminiResponse == null || geminiResponse.getResponseText() == null || geminiResponse.getResponseText().isBlank()) {
+            // FIXED: Using getExtractedText() instead of getResponseText()
+            if (geminiResponse == null || geminiResponse.getExtractedText() == null || geminiResponse.getExtractedText().isBlank()) {
                 throw new RuntimeException("Gemini returned an empty response.");
             }
 
-            Map<String, Object> parsedData = geminiApiService.parseJsonToMap(geminiResponse.getResponseText());
+            // FIXED: Using getExtractedText() instead of getResponseText()
+            Map<String, Object> parsedData = geminiApiService.parseJsonToMap(geminiResponse.getExtractedText());
             String summary = (String) parsedData.get("summary");
 
             // Success

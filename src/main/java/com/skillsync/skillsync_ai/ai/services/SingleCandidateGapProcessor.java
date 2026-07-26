@@ -27,41 +27,67 @@ public class SingleCandidateGapProcessor {
     private final SkillGapAnalysisRepository skillGapRepository;
     private final ApplicationEventPublisher eventPublisher;
 
-    // REQUIRES_NEW guarantees a brand new, isolated transaction for every single candidate
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void processCandidate(CandidateProfileForAi candidate, UUID projectId, String requiredSkillsJson) {
-        try {
-            var geminiResponse = geminiApiService.analyzeSkillGap(candidate.skills(), requiredSkillsJson).block();
+    private final GeminiApiService.RecommendationPromptFactory promptFactory;
 
-            // GUARD: Check for null or completely empty text before attempting JSON parsing
-            if (geminiResponse == null || geminiResponse.getResponseText() == null || geminiResponse.getResponseText().isBlank()) {
-                log.warn("Gemini returned an empty/null response for User: {} on Project: {}", candidate.userId(), projectId);
+    // --- NEW: Recommendation Engine Threshold ---
+    private static final double MINIMUM_VIABLE_MATCH_PERCENTAGE = 40.0;
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void processCandidateBatch(List<CandidateProfileForAi> candidates, UUID projectId, String requiredSkillsJson) {
+        if (candidates == null || candidates.isEmpty()) return;
+        
+        try {
+            String prompt = promptFactory.buildProjectSkillGapBatchPrompt(requiredSkillsJson, candidates);
+            var geminiResponse = geminiApiService.analyzeSkillGapForBatch(prompt).block();
+
+            if (geminiResponse == null || geminiResponse.getExtractedText() == null || geminiResponse.getExtractedText().isBlank()) {
+                log.warn("Gemini returned an empty/null response for batch on Project: {}", projectId);
                 return;
             }
 
-            Map<String, Object> parsedData = geminiApiService.parseJsonToMap(geminiResponse.getResponseText());
-            BigDecimal matchPercentage = BigDecimal.valueOf(((Number) parsedData.get("matchPercentage")).doubleValue());
+            List<Map<String, Object>> parsedDataList = geminiApiService.parseJsonToList(geminiResponse.getExtractedText());
 
-            SkillGapAnalysis gapAnalysis = skillGapRepository.findByUserIdAndProjectId(candidate.userId(), projectId)
-                    .orElse(SkillGapAnalysis.builder()
-                            .userId(candidate.userId())
-                            .projectId(projectId)
-                            .build());
+            for (Map<String, Object> parsedData : parsedDataList) {
+                try {
+                    UUID userId = UUID.fromString((String) parsedData.get("userId"));
+                    BigDecimal matchPercentage = BigDecimal.valueOf(((Number) parsedData.get("matchPercentage")).doubleValue());
 
-            gapAnalysis.setMatchPercentage(matchPercentage);
-            gapAnalysis.setMissingSkills(mapToSkillGapItems((List<Map<String, String>>) parsedData.get("missingSkills")));
-            gapAnalysis.setMatchedSkills(mapToSkillGapItems((List<Map<String, String>>) parsedData.get("matchedSkills")));
+                    if (matchPercentage.doubleValue() < MINIMUM_VIABLE_MATCH_PERCENTAGE) {
+                        log.info("Candidate {} scored {}%. Below threshold. Discarding recommendation.", userId, matchPercentage);
+                        continue; 
+                    }
 
-            skillGapRepository.save(gapAnalysis);
+                    SkillGapAnalysis gapAnalysis = skillGapRepository.findByUserIdAndProjectId(userId, projectId)
+                            .orElse(SkillGapAnalysis.builder()
+                                    .userId(userId)
+                                    .projectId(projectId)
+                                    .build());
 
-            eventPublisher.publishEvent(new CompatibilityScoreComputedEvent(
-                    projectId, candidate.userId(), matchPercentage, (String) parsedData.get("rationale")
-            ));
+                    CandidateProfileForAi matchingCandidate = candidates.stream()
+                            .filter(c -> c.userId().equals(userId))
+                            .findFirst()
+                            .orElse(null);
+
+                    if (matchingCandidate != null) {
+                        gapAnalysis.setStudentProfileId(matchingCandidate.studentProfileId());
+                    }
+
+                    gapAnalysis.setMatchPercentage(matchPercentage);
+                    gapAnalysis.setMissingSkills(mapToSkillGapItems((List<Map<String, String>>) parsedData.get("missingSkills")));
+                    gapAnalysis.setMatchedSkills(mapToSkillGapItems((List<Map<String, String>>) parsedData.get("matchedSkills")));
+
+                    skillGapRepository.save(gapAnalysis);
+
+                    eventPublisher.publishEvent(new CompatibilityScoreComputedEvent(
+                            projectId, userId, matchPercentage, (String) parsedData.get("rationale")
+                    ));
+                } catch (Exception ex) {
+                    log.error("Failed to process individual candidate in batch for project {}", projectId, ex);
+                }
+            }
 
         } catch (Exception e) {
-            // FULL STACK TRACE LOGGING: Passing 'e' as the last parameter to log.error
-            log.error("AI Skill Gap Analysis FAILED for User: {} on Project: {}.",
-                    candidate.userId(), projectId, e);
+            log.error("AI Skill Gap Analysis Batch FAILED for Project: {}.", projectId, e);
         }
     }
 

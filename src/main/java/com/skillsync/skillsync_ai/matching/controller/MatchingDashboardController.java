@@ -26,6 +26,7 @@ public class MatchingDashboardController {
 
     private final TeamMatchingService matchingService;
     private final CompatibilityScoreService scoreService;
+    private final com.skillsync.skillsync_ai.matching.services.RecommendationOrchestrator recommendationOrchestrator;
 
     @GetMapping("/me/applications")
     public ResponseEntity<ApiResponse<Page<ApplicationResponse>>> getMyApplications(
@@ -77,5 +78,13 @@ public class MatchingDashboardController {
         matchingService.verifyProjectOwnership(projectId, currentUser.getId());
         return ResponseEntity.ok(ApiResponse.success("Retrieved AI candidate recommendations",
                 scoreService.getTopCandidatesForProject(projectId, pageable)));
+    }
+
+    @PostMapping("/projects/{projectId}/generate")
+    public ResponseEntity<ApiResponse<Void>> generateRecommendations(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable UUID projectId) {
+        recommendationOrchestrator.generateRecommendationsForProject(currentUser.getId(), projectId);
+        return ResponseEntity.ok(ApiResponse.success("AI is now analyzing the top 50 candidates in the background. Please check back shortly.", null));
     }
 }
