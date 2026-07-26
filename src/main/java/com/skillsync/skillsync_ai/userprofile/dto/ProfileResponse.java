@@ -15,5 +15,9 @@ public record ProfileResponse(
         String major,
         Integer graduationYear,
         List<PreviousProjectResponse> projects, // Skills list can be added here depending on your Skill DTOs
-        List<StudentSkillResponse> skills
+        List<StudentSkillResponse> skills,
+        String achievements,
+        boolean isPublic,
+        Object aiInsights,
+        boolean insightsOutdated
 ) {}

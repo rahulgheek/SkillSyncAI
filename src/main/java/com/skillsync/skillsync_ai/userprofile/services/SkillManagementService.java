@@ -22,6 +22,7 @@ public class SkillManagementService {
     private final SkillRepository skillRepository;
     private final StudentSkillRepository studentSkillRepository;
     private final UserProfileService userProfileService; // Direct module-to-module call
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     @Transactional(readOnly = true)
     public List<Skill> searchGlobalSkills(String query) {
@@ -54,7 +55,9 @@ public class SkillManagementService {
                 .source(SkillSource.MANUAL) // Change to AI_EXTRACTED when the AI module calls this
                 .build();
 
-        return studentSkillRepository.save(newStudentSkill);
+        StudentSkill savedSkill = studentSkillRepository.save(newStudentSkill);
+        eventPublisher.publishEvent(new com.skillsync.skillsync_ai.common.events.ProfileUpdatedEvent(userId));
+        return savedSkill;
     }
 
     @Transactional

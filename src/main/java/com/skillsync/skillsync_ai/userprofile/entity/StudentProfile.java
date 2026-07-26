@@ -59,11 +59,25 @@ public class StudentProfile {
 
     private String major;
 
+    @Column(columnDefinition = "TEXT")
+    private String achievements;
+
+    @Column(name = "is_public", nullable = false)
+    @Builder.Default
+    private boolean isPublic = true;
+
     // --- Auditing & Soft Delete Fields ---
 
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
+
+    @Column(name = "ai_insights", columnDefinition = "TEXT")
+    private String aiInsights;
+
+    @Column(name = "insights_outdated", nullable = false)
+    @Builder.Default
+    private boolean insightsOutdated = true;
 
     @LastModifiedDate
     @Column(name = "updated_at", nullable = false)

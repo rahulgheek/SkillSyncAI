@@ -28,6 +28,12 @@ public class ProfileController {
                 profileService.getAggregatedProfile(userId)));
     }
 
+    @PostMapping("/insights/generate")
+    public ResponseEntity<ApiResponse<ProfileResponse>> generateAiInsights(@AuthenticationPrincipal(expression = "id") UUID userId) {
+        return ResponseEntity.ok(ApiResponse.success("AI Insights generated successfully",
+                profileService.generateAiInsights(userId)));
+    }
+
     @PostMapping
     public ResponseEntity<ApiResponse<ProfileResponse>> createProfile(@AuthenticationPrincipal(expression = "id") UUID userId,
                                                                       @Valid @RequestBody UpdateProfileBasicInfoRequest request) {
@@ -61,5 +67,20 @@ public class ProfileController {
                                                           @Valid @RequestBody UpdateMediaUrlRequest request) {
         profileService.updateAvatarUrl(userId, request);
         return ResponseEntity.ok(ApiResponse.success("Avatar URL updated successfully", null));
+    }
+
+    @GetMapping("/search")
+    public ResponseEntity<ApiResponse<org.springframework.data.domain.Page<ProfileResponse>>> searchProfiles(
+            @AuthenticationPrincipal(expression = "id") UUID currentUserId,
+            @RequestParam(required = false, defaultValue = "") String query,
+            @org.springframework.data.web.PageableDefault(size = 20) org.springframework.data.domain.Pageable pageable) {
+        return ResponseEntity.ok(ApiResponse.success("Profiles retrieved successfully",
+                profileService.searchPublicProfiles(query, currentUserId, pageable)));
+    }
+
+    @GetMapping("/{userId}")
+    public ResponseEntity<ApiResponse<ProfileResponse>> getPublicProfile(@PathVariable UUID userId) {
+        return ResponseEntity.ok(ApiResponse.success("Public profile retrieved successfully",
+                profileService.getPublicProfile(userId)));
     }
 }

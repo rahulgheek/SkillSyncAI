@@ -20,6 +20,7 @@ public class PreviousProjectService {
 
     private final PreviousProjectRepository projectRepository;
     private final StudentProfileRepository profileRepository;
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public PreviousProjectResponse addProject(UUID userId, PreviousProjectRequest request) {
@@ -43,6 +44,7 @@ public class PreviousProjectService {
                 .build();
 
         PreviousProject saved = projectRepository.save(project);
+        eventPublisher.publishEvent(new com.skillsync.skillsync_ai.common.events.ProfileUpdatedEvent(userId));
         return mapToResponse(saved);
     }
 
@@ -53,6 +55,7 @@ public class PreviousProjectService {
                 .orElseThrow(() -> new RuntimeException("Project not found or unauthorized"));
 
         projectRepository.delete(project);
+        eventPublisher.publishEvent(new com.skillsync.skillsync_ai.common.events.ProfileUpdatedEvent(userId));
     }
 
     @Transactional(readOnly = true)
@@ -87,6 +90,8 @@ public class PreviousProjectService {
         project.setTechStack(request.techStack());
         project.setGithubUrl(request.githubUrl());
 
-        return mapToResponse(projectRepository.save(project));
+        PreviousProject saved = projectRepository.save(project);
+        eventPublisher.publishEvent(new com.skillsync.skillsync_ai.common.events.ProfileUpdatedEvent(userId));
+        return mapToResponse(saved);
     }
 }
