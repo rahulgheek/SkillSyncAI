@@ -42,6 +42,9 @@ public class StudentProfile {
     @Column(name = "resume_url", columnDefinition = "TEXT")
     private String resumeUrl;
 
+    @Column(name = "resume_summary", columnDefinition = "TEXT")
+    private String resumeSummary;
+
     @Column(name = "resume_uploaded_at")
     private Instant resumeUploadedAt;
 

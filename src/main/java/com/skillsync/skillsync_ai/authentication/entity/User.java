@@ -16,6 +16,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
+import java.security.Principal;
+
 @Entity
 @Table(name = "users", schema = "auth")
 @Getter
@@ -26,7 +28,7 @@ import java.util.UUID;
 @EntityListeners(AuditingEntityListener.class)
 @SQLDelete(sql = "UPDATE auth.users SET deleted_at = NOW() WHERE id = ?")
 @SQLRestriction("deleted_at IS NULL")
-public class User implements UserDetails {
+public class User implements UserDetails, Principal {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -95,6 +97,10 @@ public class User implements UserDetails {
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         return List.of(new SimpleGrantedAuthority("ROLE_" + role.name()));
+    }
+
+    public String getName() {
+        return id != null ? id.toString() : email;
     }
 
     @Override

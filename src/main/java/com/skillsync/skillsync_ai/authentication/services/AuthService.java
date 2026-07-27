@@ -117,7 +117,9 @@ public class AuthService {
             throw new RuntimeException("This account has been deactivated by an administrator.");
         }
 
-        String accessToken = jwtService.generateToken(user);
+        java.util.Map<String, Object> extraClaims = new java.util.HashMap<>();
+        extraClaims.put("userId", user.getId().toString());
+        String accessToken = jwtService.generateToken(extraClaims, user);
 
         return new AuthResponse(accessToken, "Login successful");
     }

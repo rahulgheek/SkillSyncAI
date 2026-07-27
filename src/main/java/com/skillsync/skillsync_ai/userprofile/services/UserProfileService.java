@@ -9,6 +9,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.kafka.core.KafkaTemplate;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.skillsync.skillsync_ai.common.config.KafkaConfig;
 
 import java.util.List;
 import java.util.Map;
@@ -24,6 +27,8 @@ public class UserProfileService {
     private final PreviousProjectService previousProjectService;
     private final StudentSkillRepository studentSkillRepository;
     private final com.skillsync.skillsync_ai.ai.services.GeminiApiService geminiApiService;
+    private final KafkaTemplate<String, String> kafkaTemplate;
+    private final ObjectMapper objectMapper;
 
     private StudentProfile getProfileOrThrow(UUID userId) {
         return profileRepository.findByUserId(userId)
@@ -116,7 +121,12 @@ public class UserProfileService {
         profile.setResumeUploadedAt(java.time.Instant.now()); // Added Timestamp Update!
         profileRepository.save(profile);
 
-        eventPublisher.publishEvent(new ResumeUploadedEvent(userId, request.url()));
+        try {
+            ResumeUploadedEvent event = new ResumeUploadedEvent(userId, request.url());
+            kafkaTemplate.send(KafkaConfig.RESUME_UPLOADED_TOPIC, userId.toString(), objectMapper.writeValueAsString(event));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to publish resume uploaded event to Kafka", e);
+        }
     }
 
     @Transactional
@@ -171,7 +181,8 @@ public class UserProfileService {
                 profile.getAchievements(),
                 profile.isPublic(),
                 aiInsightsObj,
-                profile.isInsightsOutdated()
+                profile.isInsightsOutdated(),
+                profile.getResumeSummary()
         );
     }
 

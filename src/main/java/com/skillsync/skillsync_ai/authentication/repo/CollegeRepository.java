@@ -8,4 +8,5 @@ import java.util.UUID;
 
 public interface CollegeRepository extends JpaRepository<College, UUID> {
     Optional<College> findByEmailDomain(String emailDomain);
+    boolean existsByEmailDomainIgnoreCase(String emailDomain);
 }

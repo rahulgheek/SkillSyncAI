@@ -24,18 +24,8 @@ public class ApplicationSecurityBeansConfig {
 
     @Bean
     public UserDetailsService userDetailsService() {
-        return username -> {
-            // 1. Fetch your custom user from your database
-            var customUser = userRepository.findByEmail(username)
-                    .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + username));
-
-            // 2. Map it cleanly to Spring Security's official User object
-            return new User(
-                    customUser.getEmail(),
-                    customUser.getPassword(),
-                    Collections.emptyList() // Add roles here later if you need them!
-            );
-        };
+        return username -> userRepository.findByEmail(username)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + username));
     }
 
     // THIS IS THE BEAN SPRING IS CRYING ABOUT!

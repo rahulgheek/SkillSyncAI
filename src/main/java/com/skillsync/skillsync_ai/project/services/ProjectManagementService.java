@@ -12,6 +12,8 @@ import com.skillsync.skillsync_ai.project.repo.ProjectRoleRepository;
 import com.skillsync.skillsync_ai.project.repo.TeamMemberRepository;
 import com.skillsync.skillsync_ai.userprofile.repo.StudentProfileRepository;
 import com.skillsync.skillsync_ai.userprofile.entity.StudentProfile;
+import com.skillsync.skillsync_ai.userprofile.repo.StudentSkillRepository;
+import com.skillsync.skillsync_ai.userprofile.entity.StudentSkill;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -34,6 +36,7 @@ public class ProjectManagementService {
     private final ProjectRoleRepository projectRoleRepository;
     private final TeamMemberRepository teamMemberRepository;
     private final StudentProfileRepository studentProfileRepository;
+    private final StudentSkillRepository studentSkillRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
@@ -220,6 +223,13 @@ public class ProjectManagementService {
         member.setLeftAt(Instant.now());
         decrementRoleCount(member);
         teamMemberRepository.save(member);
+        
+        Project project = projectRepository.findById(projectId).orElseThrow();
+        long activeMembers = teamMemberRepository.findAllByProjectIdAndStatus(projectId, MemberStatus.ACTIVE).size();
+        if (project.getStatus() == ProjectStatus.IN_PROGRESS && activeMembers < project.getMaxTeamSize()) {
+            project.setStatus(ProjectStatus.RECRUITING);
+            projectRepository.save(project);
+        }
     }
 
     @Transactional
@@ -236,6 +246,12 @@ public class ProjectManagementService {
         member.setLeftAt(Instant.now());
         decrementRoleCount(member);
         teamMemberRepository.save(member);
+        
+        long activeMembers = teamMemberRepository.findAllByProjectIdAndStatus(projectId, MemberStatus.ACTIVE).size();
+        if (project.getStatus() == ProjectStatus.IN_PROGRESS && activeMembers < project.getMaxTeamSize()) {
+            project.setStatus(ProjectStatus.RECRUITING);
+            projectRepository.save(project);
+        }
     }
 
     // --- MODULITH LISTENER ---
@@ -281,6 +297,15 @@ public class ProjectManagementService {
             role.setFilledCount((short) (role.getFilledCount() + 1));
             projectRoleRepository.save(role);
         }
+        
+        // FIX 4: Check if project is now full and update status to hide from discover feed
+        long newActiveMembersCount = teamMemberRepository.findAllByProjectIdAndStatus(event.projectId(), MemberStatus.ACTIVE).size();
+        if (newActiveMembersCount >= project.getMaxTeamSize() && project.getStatus() == ProjectStatus.RECRUITING) {
+            project.setStatus(ProjectStatus.IN_PROGRESS);
+            projectRepository.save(project);
+            log.info("Project {} has reached max capacity and is now IN_PROGRESS", project.getId());
+        }
+        
         log.info("Successfully added User: {} to Project: {}", event.userId(), event.projectId());
     }
 
@@ -327,10 +352,26 @@ public class ProjectManagementService {
     }
 
     private TeamMemberResponse mapToMemberResponse(TeamMember m) {
+        StudentProfile profile = studentProfileRepository.findByUserId(m.getUserId()).orElse(null);
+        List<String> topSkills = java.util.Collections.emptyList();
+        
+        if (profile != null) {
+            topSkills = studentSkillRepository.findAllByStudentProfileId(profile.getId())
+                    .stream()
+                    .map(skill -> skill.getSkill().getName())
+                    .limit(3)
+                    .collect(Collectors.toList());
+        }
+        
         return new TeamMemberResponse(m.getId(), m.getUserId(),
                 m.getProjectRole() != null ? m.getProjectRole().getId() : null,
                 m.getProjectRole() != null ? m.getProjectRole().getTitle() : null,
-                m.getStatus(), m.getJoinedAt());
+                m.getStatus(), m.getJoinedAt(),
+                profile != null ? profile.getFullName() : "Unknown User",
+                profile != null ? profile.getProfilePictureUrl() : null,
+                profile != null ? profile.getMajor() : null,
+                profile != null ? profile.getGraduationYear() : null,
+                topSkills);
     }
 
     @Transactional

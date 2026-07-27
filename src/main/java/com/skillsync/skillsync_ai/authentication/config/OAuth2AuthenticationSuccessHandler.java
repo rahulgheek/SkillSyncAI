@@ -26,7 +26,7 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
     private final UserRepository userRepository;
     private final StringRedisTemplate redisTemplate;
 
-    @Value("${app.frontend.oauth2-redirect-url:http://localhost:3000/oauth2/callback}")
+    @Value("${app.frontend.oauth2-redirect-url:http://localhost:5173/oauth2/callback}")
     private String frontendRedirectUrl;
 
     @Override

@@ -13,4 +13,5 @@ import java.util.UUID;
 public interface TeamMemberRepository extends JpaRepository<TeamMember, UUID> {
     List<TeamMember> findAllByProjectIdAndStatus(UUID projectId, MemberStatus status);
     Optional<TeamMember> findByProjectIdAndUserIdAndStatus(UUID projectId, UUID userId, MemberStatus status);
+    List<TeamMember> findAllByUserIdAndStatus(UUID userId, MemberStatus status);
 }

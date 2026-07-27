@@ -44,4 +44,31 @@ public class ProjectGatewayImpl implements ProjectGateway {
                 .findByProjectIdAndUserIdAndStatus(projectId, userId, MemberStatus.ACTIVE)
                 .isPresent();
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.List<ProjectChatContext> getUserActiveProjects(UUID userId) {
+        java.util.List<ProjectChatContext> contexts = new java.util.ArrayList<>();
+        
+        // 1. Projects the user owns
+        projectRepository.findAllByOwnerId(userId, org.springframework.data.domain.Pageable.unpaged())
+            .forEach(p -> contexts.add(new ProjectChatContext(
+                p.getId(), p.getTitle(), java.time.LocalDateTime.ofInstant(p.getCreatedAt(), java.time.ZoneId.systemDefault())
+            )));
+            
+        // 2. Projects the user is a member of
+        teamMemberRepository.findAllByUserIdAndStatus(userId, MemberStatus.ACTIVE)
+            .forEach(tm -> {
+                projectRepository.findById(tm.getProject().getId()).ifPresent(p -> {
+                    // Avoid duplicates if owner is also a member somehow
+                    if (!p.getOwnerId().equals(userId)) {
+                        contexts.add(new ProjectChatContext(
+                            p.getId(), p.getTitle(), java.time.LocalDateTime.ofInstant(p.getCreatedAt(), java.time.ZoneId.systemDefault())
+                        ));
+                    }
+                });
+            });
+            
+        return contexts;
+    }
 }

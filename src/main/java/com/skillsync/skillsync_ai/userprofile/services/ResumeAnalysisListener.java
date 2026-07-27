@@ -9,8 +9,10 @@ import com.skillsync.skillsync_ai.userprofile.entity.enums.SkillSource;
 import com.skillsync.skillsync_ai.userprofile.repo.SkillRepository;
 import com.skillsync.skillsync_ai.userprofile.repo.StudentSkillRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.kafka.annotation.KafkaListener;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.skillsync.skillsync_ai.common.config.KafkaConfig;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,12 +27,19 @@ public class ResumeAnalysisListener {
     private final UserProfileService userProfileService;
     private final SkillRepository skillRepository;
     private final StudentSkillRepository studentSkillRepository;
+    private final com.skillsync.skillsync_ai.userprofile.repo.StudentProfileRepository profileRepository;
+    private final ObjectMapper objectMapper;
 
-    @ApplicationModuleListener
+    @KafkaListener(topics = KafkaConfig.RESUME_ANALYZED_TOPIC, groupId = "userprofile-module-group")
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void onResumeAnalyzed(ResumeAnalysisCompletedEvent event) {
-        log.info("UserProfile module received AI extracted skills for User ID: {}", event.userId());
+        log.info("UserProfile module received AI extracted skills via Kafka for User ID: {}", event.userId());
         StudentProfile profile = userProfileService.getProfileByUserId(event.userId());
+            
+            if (event.resumeSummary() != null) {
+                profile.setResumeSummary(event.resumeSummary());
+                profileRepository.save(profile);
+            }
 
         event.extractedSkills().forEach(extracted -> {
             Skill globalSkill = skillRepository.findByNameIgnoreCase(extracted.skillName())
