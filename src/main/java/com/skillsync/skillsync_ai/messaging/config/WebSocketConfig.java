@@ -19,7 +19,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final AuthChannelInterceptor authChannelInterceptor;
 
-    @Value("${app.frontend.url:http://localhost:3000}")
+    @Value("${app.frontend.url:http://localhost:5173}")
     private String frontendUrl;
 
     @Override
@@ -32,9 +32,12 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
         // Topic for broadcasting to subscribers (e.g., /topic/projects/{id})
-        registry.enableSimpleBroker("/topic");
+        // Queue for direct user messages (e.g., /user/queue/messages)
+        registry.enableSimpleBroker("/topic", "/queue");
         // Prefix for inbound messages from clients (e.g., /app/chat.sendMessage)
         registry.setApplicationDestinationPrefixes("/app");
+        // Prefix used for sending to specific users
+        registry.setUserDestinationPrefix("/user");
     }
 
     @Override

@@ -7,6 +7,8 @@ public record ProjectChatMessage(
         UUID id,
         UUID projectId,
         UUID senderId,
+        String senderName,
+        String senderAvatar,
         String content,
         Instant createdAt
 ) {}

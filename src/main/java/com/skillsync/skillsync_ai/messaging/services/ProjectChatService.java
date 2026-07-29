@@ -6,6 +6,7 @@ import com.skillsync.skillsync_ai.messaging.dto.ProjectChatMessage;
 import com.skillsync.skillsync_ai.messaging.entity.ProjectMessage;
 import com.skillsync.skillsync_ai.messaging.repo.ProjectMessageRepository;
 import com.skillsync.skillsync_ai.project.ProjectGateway;
+import com.skillsync.skillsync_ai.userprofile.UserProfileGateway;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
@@ -21,6 +22,7 @@ public class ProjectChatService {
 
     private final ProjectMessageRepository messageRepository;
     private final ProjectGateway projectGateway;
+    private final UserProfileGateway userProfileGateway;
     private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
@@ -58,9 +60,18 @@ public class ProjectChatService {
     }
 
     private ProjectChatMessage mapToDto(ProjectMessage msg) {
+        var profile = userProfileGateway.getUserProfile(msg.getSenderId()).orElse(null);
+        String name = profile != null ? profile.fullName() : "Unknown User";
+        String avatar = profile != null ? profile.profilePictureUrl() : null;
+
         return new ProjectChatMessage(
-                msg.getId(), msg.getProjectId(), msg.getSenderId(),
-                msg.getContent(), msg.getCreatedAt()
+                msg.getId(),
+                msg.getProjectId(),
+                msg.getSenderId(),
+                name,
+                avatar,
+                msg.getContent(),
+                msg.getCreatedAt()
         );
     }
 }

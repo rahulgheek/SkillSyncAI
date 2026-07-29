@@ -53,9 +53,20 @@ public class GlobalExceptionHandler {
                         .build());
     }
 
+    // Silently ignore client disconnects to prevent log spam
+    @ExceptionHandler(org.springframework.web.context.request.async.AsyncRequestNotUsableException.class)
+    public void handleAsyncRequestNotUsableException(org.springframework.web.context.request.async.AsyncRequestNotUsableException ex) {
+        log.debug("Client aborted the connection asynchronously: {}", ex.getMessage());
+    }
+
     // The ultimate fallback for 500s (e.g., NullPointerExceptions, DB crashes)
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleGenericException(Exception ex) {
+        if (ex.getClass().getName().contains("ClientAbortException")) {
+            log.debug("Client aborted the connection: {}", ex.getMessage());
+            return null;
+        }
+        
         log.error("Unhandled exception caught in GlobalExceptionHandler: ", ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiResponse.error("An unexpected server error occurred. Our team has been notified."));

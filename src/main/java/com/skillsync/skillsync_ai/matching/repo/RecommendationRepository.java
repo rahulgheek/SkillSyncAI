@@ -10,4 +10,7 @@ import java.util.UUID;
 @Repository
 public interface RecommendationRepository extends JpaRepository<ProjectRecommendation, UUID> {
     Optional<ProjectRecommendation> findByProjectIdAndUserId(UUID projectId, UUID userId);
+    
+    org.springframework.data.domain.Page<ProjectRecommendation> findAllByProjectIdOrderByFinalScoreDesc(UUID projectId, org.springframework.data.domain.Pageable pageable);
+    org.springframework.data.domain.Page<ProjectRecommendation> findAllByUserIdOrderByFinalScoreDesc(UUID userId, org.springframework.data.domain.Pageable pageable);
 }

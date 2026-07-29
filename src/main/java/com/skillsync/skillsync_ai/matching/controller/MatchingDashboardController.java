@@ -7,7 +7,8 @@ import com.skillsync.skillsync_ai.matching.dto.CompatibilityScoreResponse;
 import com.skillsync.skillsync_ai.matching.dto.InvitationResponse;
 import com.skillsync.skillsync_ai.matching.entity.enums.ApplicationStatus;
 import com.skillsync.skillsync_ai.matching.entity.enums.InvitationStatus;
-import com.skillsync.skillsync_ai.matching.services.CompatibilityScoreService;
+import com.skillsync.skillsync_ai.matching.dto.ProjectRecommendationResponse;
+import com.skillsync.skillsync_ai.matching.services.RecommendationScoringService;
 import com.skillsync.skillsync_ai.matching.services.TeamMatchingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -25,7 +26,8 @@ import java.util.UUID;
 public class MatchingDashboardController {
 
     private final TeamMatchingService matchingService;
-    private final CompatibilityScoreService scoreService;
+    private final com.skillsync.skillsync_ai.matching.services.CompatibilityScoreService scoreService;
+    private final RecommendationScoringService recommendationScoringService;
     private final com.skillsync.skillsync_ai.matching.services.RecommendationOrchestrator recommendationOrchestrator;
 
     @GetMapping("/me/applications")
@@ -45,10 +47,17 @@ public class MatchingDashboardController {
     }
 
     @GetMapping("/me/recommendations")
-    public ResponseEntity<ApiResponse<Page<CompatibilityScoreResponse>>> getRecommendedProjects(
+    public ResponseEntity<ApiResponse<Page<com.skillsync.skillsync_ai.matching.dto.StudentProjectRecommendationResponse>>> getRecommendedProjects(
             @AuthenticationPrincipal User currentUser, @PageableDefault(size = 10) Pageable pageable) {
         return ResponseEntity.ok(ApiResponse.success("Retrieved AI project recommendations",
-                scoreService.getRecommendedProjectsForStudent(currentUser.getId(), pageable)));
+                recommendationScoringService.getRecommendedProjectsForStudent(currentUser.getId(), pageable)));
+    }
+
+    @PostMapping("/me/recommendations/generate")
+    public ResponseEntity<ApiResponse<Void>> generateStudentRecommendations(
+            @AuthenticationPrincipal User currentUser) {
+        recommendationOrchestrator.generateRecommendationsForStudent(currentUser.getId());
+        return ResponseEntity.ok(ApiResponse.success("AI is now analyzing the top 10 projects in the background. Please check back shortly.", null));
     }
 
     @GetMapping("/projects/{projectId}/applications")
@@ -71,13 +80,13 @@ public class MatchingDashboardController {
     }
 
     @GetMapping("/projects/{projectId}/recommendations")
-    public ResponseEntity<ApiResponse<Page<CompatibilityScoreResponse>>> getTopCandidatesForProject(
+    public ResponseEntity<ApiResponse<Page<ProjectRecommendationResponse>>> getTopCandidatesForProject(
             @AuthenticationPrincipal User currentUser,
             @PathVariable UUID projectId,
             @PageableDefault(size = 10) Pageable pageable) {
         matchingService.verifyProjectOwnership(projectId, currentUser.getId());
         return ResponseEntity.ok(ApiResponse.success("Retrieved AI candidate recommendations",
-                scoreService.getTopCandidatesForProject(projectId, pageable)));
+                recommendationScoringService.getTopCandidatesForProject(projectId, pageable)));
     }
 
     @PostMapping("/projects/{projectId}/generate")

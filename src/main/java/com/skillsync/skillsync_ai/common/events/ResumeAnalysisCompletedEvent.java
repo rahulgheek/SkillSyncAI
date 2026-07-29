@@ -6,5 +6,6 @@ import java.util.UUID;
 
 public record ResumeAnalysisCompletedEvent(
         UUID userId,
-        List<ExtractedSkill> extractedSkills
+        List<ExtractedSkill> extractedSkills,
+        String resumeSummary
 ) {}

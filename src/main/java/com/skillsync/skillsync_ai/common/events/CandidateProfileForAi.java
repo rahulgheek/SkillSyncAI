@@ -6,5 +6,6 @@ import java.util.UUID;
 public record CandidateProfileForAi(
         UUID userId,
         UUID studentProfileId,
-        List<AiSkill> skills // Upgraded from a pre-formatted String
+        List<AiSkill> skills,
+        List<AiAchievement> achievements
 ) {}

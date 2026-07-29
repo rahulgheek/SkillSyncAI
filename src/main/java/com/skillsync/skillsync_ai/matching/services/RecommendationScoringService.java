@@ -7,7 +7,8 @@ import com.skillsync.skillsync_ai.matching.entity.enums.RecommendationStatus;
 import com.skillsync.skillsync_ai.matching.repo.RecommendationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.modulith.events.ApplicationModuleListener;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,8 +23,11 @@ import java.time.temporal.ChronoUnit;
 public class RecommendationScoringService {
 
     private final RecommendationRepository recommendationRepository;
+    private final com.skillsync.skillsync_ai.userprofile.UserProfileGateway userProfileGateway;
+    private final com.skillsync.skillsync_ai.project.ProjectGateway projectGateway;
 
-    @ApplicationModuleListener
+    @EventListener
+    @Async
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void onBatchScored(CompatibilityBatchScoredEvent event) {
         log.info("Applying deterministic business rules to {} AI scores for Project {}",
@@ -91,5 +95,79 @@ public class RecommendationScoringService {
     private boolean hasLowCompletionRate(java.util.UUID userId) {
         // e.g., call AnalyticsGateway.getCompletionRate(userId) < 0.5
         return false;
+    }
+
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<com.skillsync.skillsync_ai.matching.dto.ProjectRecommendationResponse> getTopCandidatesForProject(java.util.UUID projectId, org.springframework.data.domain.Pageable pageable) {
+        return recommendationRepository.findAllByProjectIdOrderByFinalScoreDesc(projectId, pageable)
+                .map(r -> {
+                    var profile = userProfileGateway.getUserProfile(r.getUserId()).orElse(null);
+                    return new com.skillsync.skillsync_ai.matching.dto.ProjectRecommendationResponse(
+                            r.getId(), r.getProjectId(), r.getUserId(),
+                            profile != null ? profile.fullName() : "Unknown Candidate",
+                            profile != null ? profile.profilePictureUrl() : null,
+                            r.getSemanticScore(), r.getFinalScore(),
+                            r.getConfidence() != null ? r.getConfidence().name() : null,
+                            r.getMatchedSkills(), r.getRationale(), r.getStatus().name(), r.getExpiresAt()
+                    );
+                });
+    }
+
+    @EventListener
+    @Async
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void onStudentProjectsBatchScored(com.skillsync.skillsync_ai.common.events.StudentProjectsBatchScoredEvent event) {
+        log.info("Applying deterministic business rules to {} AI scores for Student {}",
+                event.scoredProjects().size(), event.studentUserId());
+
+        for (com.skillsync.skillsync_ai.common.events.StudentProjectsBatchScoredEvent.IndividualProjectScore score : event.scoredProjects()) {
+            try {
+                BigDecimal finalScore = score.semanticScore();
+                
+                // Add minor bonuses/penalties if desired, similar to Candidate scoring
+                finalScore = finalScore.max(BigDecimal.ZERO).min(new BigDecimal("100.0"));
+                
+                RecommendationStatus status = finalScore.compareTo(new BigDecimal("40.0")) >= 0
+                        ? RecommendationStatus.GENERATED
+                        : RecommendationStatus.LOW_MATCH;
+                        
+                ProjectRecommendation recommendation = recommendationRepository
+                        .findByProjectIdAndUserId(score.projectId(), event.studentUserId())
+                        .orElse(ProjectRecommendation.builder()
+                                .projectId(score.projectId())
+                                .userId(event.studentUserId())
+                                .build());
+
+                recommendation.setSemanticScore(score.semanticScore());
+                recommendation.setFinalScore(finalScore);
+                recommendation.setConfidence(score.confidence()); 
+                recommendation.setMatchedSkills(score.matchedSkills());
+                recommendation.setPromptVersion(event.promptVersion());
+                recommendation.setRationale(score.rationale());
+                recommendation.setStatus(status);
+                recommendation.setExpiresAt(Instant.now().plus(14, ChronoUnit.DAYS));
+
+                recommendationRepository.save(recommendation);
+            } catch (Exception e) {
+                log.error("Failed to process scoring for Project {} and Student {}", score.projectId(), event.studentUserId(), e);
+            }
+        }
+        log.info("Successfully persisted ranked recommendations for Student {}", event.studentUserId());
+    }
+
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<com.skillsync.skillsync_ai.matching.dto.StudentProjectRecommendationResponse> getRecommendedProjectsForStudent(java.util.UUID studentId, org.springframework.data.domain.Pageable pageable) {
+        return recommendationRepository.findAllByUserIdOrderByFinalScoreDesc(studentId, pageable)
+                .map(r -> {
+                    var projectContext = projectGateway.getProjectDiscoveryContext(r.getProjectId());
+                    return new com.skillsync.skillsync_ai.matching.dto.StudentProjectRecommendationResponse(
+                            r.getId(), r.getProjectId(), 
+                            projectContext.title(), projectContext.description(), 
+                            r.getUserId(),
+                            r.getSemanticScore(), r.getFinalScore(),
+                            r.getConfidence() != null ? r.getConfidence().name() : null,
+                            r.getMatchedSkills(), r.getRationale(), r.getStatus().name(), r.getExpiresAt()
+                    );
+                });
     }
 }

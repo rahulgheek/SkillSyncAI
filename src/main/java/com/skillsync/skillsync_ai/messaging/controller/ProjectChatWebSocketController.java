@@ -41,6 +41,35 @@ public class ProjectChatWebSocketController {
         messagingTemplate.convertAndSend("/topic/projects/" + projectId, outgoingMsg);
     }
 
+    private final com.skillsync.skillsync_ai.messaging.services.DirectMessageService directMessageService;
+    private final com.skillsync.skillsync_ai.authentication.repo.UserRepository userRepository;
+
+    @MessageMapping("/direct/{recipientId}")
+    public void processDirectMessage(
+            @DestinationVariable UUID recipientId,
+            @Payload com.skillsync.skillsync_ai.messaging.dto.DirectMessageDto incomingMsg,
+            Authentication authentication) {
+        
+        User sender = (User) authentication.getPrincipal();
+        
+        com.skillsync.skillsync_ai.messaging.dto.DirectMessageDto outgoingMsg = 
+                directMessageService.processAndSaveMessage(sender.getId(), recipientId, incomingMsg.content());
+        
+        // Spring WebSocket convertAndSendToUser uses the Principal's getName(). 
+        // Our Principal (UsernamePasswordAuthenticationToken) returns the email as getName().
+        // So we must route using emails, not UUIDs!
+        String senderEmail = sender.getEmail();
+        String recipientEmail = userRepository.findById(recipientId).map(User::getEmail).orElse(null);
+        
+        if (recipientEmail != null) {
+            messagingTemplate.convertAndSendToUser(
+                    recipientEmail, "/queue/messages", outgoingMsg);
+        }
+        
+        messagingTemplate.convertAndSendToUser(
+                senderEmail, "/queue/messages", outgoingMsg);
+    }
+
     // Handles security exceptions gracefully over WebSockets
     @MessageExceptionHandler
     @SendToUser("/queue/errors")
