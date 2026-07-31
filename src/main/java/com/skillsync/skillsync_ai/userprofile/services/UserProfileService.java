@@ -25,6 +25,7 @@ public class UserProfileService {
     private final StudentProfileRepository profileRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final PreviousProjectService previousProjectService;
+    private final AchievementService achievementService;
     private final StudentSkillRepository studentSkillRepository;
     private final com.skillsync.skillsync_ai.ai.services.GeminiApiService geminiApiService;
     private final KafkaTemplate<String, String> kafkaTemplate;
@@ -50,10 +51,6 @@ public class UserProfileService {
         profile.setFullName(request.fullName());
         profile.setBio(request.bio());
         profile.setMajor(request.major());
-        
-        if (request.achievements() != null) {
-            profile.setAchievements(request.achievements());
-        }
         if (request.isPublic() != null) {
             profile.setPublic(request.isPublic());
         }
@@ -71,10 +68,6 @@ public class UserProfileService {
         profile.setFullName(request.fullName()); // Added Name Update
         profile.setBio(request.bio());
         profile.setMajor(request.major());
-        
-        if (request.achievements() != null) {
-            profile.setAchievements(request.achievements());
-        }
         if (request.isPublic() != null) {
             profile.setPublic(request.isPublic());
         }
@@ -158,12 +151,13 @@ public class UserProfileService {
         Object aiInsightsObj = null;
         if (profile.getAiInsights() != null && !profile.getAiInsights().isBlank()) {
             try {
-                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                aiInsightsObj = mapper.readValue(profile.getAiInsights(), Object.class);
+                aiInsightsObj = objectMapper.readValue(profile.getAiInsights(), Object.class);
             } catch (Exception e) {
                 // Ignore parse errors, just return null
             }
         }
+
+        List<AchievementResponse> achievements = achievementService.getAchievementsByProfile(profile.getId());
 
         return new ProfileResponse(
                 profile.getUserId(),
@@ -178,7 +172,7 @@ public class UserProfileService {
                 profile.getGraduationYear() != null ? (int) profile.getGraduationYear() : null,
                 projects,
                 skills, // Return them to the frontend
-                profile.getAchievements(),
+                achievements,
                 profile.isPublic(),
                 aiInsightsObj,
                 profile.isInsightsOutdated(),
@@ -206,12 +200,28 @@ public class UserProfileService {
         }
         contextBuilder.append("\n");
 
+        contextBuilder.append("Achievements: ");
+        if (profile.achievements() != null) {
+            profile.achievements().forEach(a -> contextBuilder.append(a.title()).append(" at ").append(a.organization()).append(" (").append(a.type()).append("); "));
+        }
+        contextBuilder.append("\n");
+
         String context = contextBuilder.toString();
         
         var response = geminiApiService.generateProfileInsights(context).block();
 
         if (response != null && response.getExtractedText() != null) {
-            String insightsJson = response.getExtractedText();
+            String insightsJson = response.getExtractedText().trim();
+            if (insightsJson.startsWith("```json")) {
+                insightsJson = insightsJson.substring(7);
+            } else if (insightsJson.startsWith("```")) {
+                insightsJson = insightsJson.substring(3);
+            }
+            if (insightsJson.endsWith("```")) {
+                insightsJson = insightsJson.substring(0, insightsJson.length() - 3);
+            }
+            insightsJson = insightsJson.trim();
+            
             StudentProfile studentProfile = profileRepository.findByUserId(userId).orElseThrow();
             studentProfile.setAiInsights(insightsJson);
             studentProfile.setInsightsOutdated(false);

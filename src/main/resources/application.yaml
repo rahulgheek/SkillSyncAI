@@ -28,12 +28,36 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         hbm2ddl:
           create_namespaces: true
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USER:}
+    password: ${MAIL_PASS:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
+      url: ${REDIS_URL:redis://localhost:6379}
   kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    bootstrap-servers: ${KAFKA_HOST}
+    ssl:
+      trust-store-location: classpath:ca.pem
+      trust-store-type: PEM
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    properties:
+      security.protocol: SASL_SSL
+      sasl.mechanism: SCRAM-SHA-256
+      sasl.jaas.config: org.apache.kafka.common.security.scram.ScramLoginModule required username="${KAFKA_USER}" password="${KAFKA_PASSWORD}";
 
 server:
   port: 8080
@@ -42,3 +66,8 @@ gemini:
   api:
     url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
     key: ${GEMINI_API_KEY}
+
+groq:
+  api:
+    url: "https://api.groq.com/openai/v1/chat/completions"
+    key: ${GROQ_API_KEY}

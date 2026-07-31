@@ -71,4 +71,12 @@ public class ProjectGatewayImpl implements ProjectGateway {
             
         return contexts;
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ProjectDiscoveryContext getProjectDiscoveryContext(UUID projectId) {
+        return projectRepository.findById(projectId)
+                .map(p -> new ProjectDiscoveryContext(p.getId(), p.getTitle(), p.getDescription()))
+                .orElseThrow(() -> new IllegalArgumentException("Project not found for discovery context"));
+    }
 }

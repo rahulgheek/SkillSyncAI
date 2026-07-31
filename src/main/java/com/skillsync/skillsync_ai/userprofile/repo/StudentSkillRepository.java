@@ -10,7 +10,8 @@ import java.util.UUID;
 
 @Repository
 public interface StudentSkillRepository extends JpaRepository<StudentSkill, UUID> {
-    List<StudentSkill> findAllByStudentProfileId(UUID studentProfileId);
+    @org.springframework.data.jpa.repository.Query("SELECT ss FROM StudentSkill ss JOIN FETCH ss.skill WHERE ss.studentProfile.id = :studentProfileId")
+    List<StudentSkill> findAllByStudentProfileId(@org.springframework.data.repository.query.Param("studentProfileId") UUID studentProfileId);
     Optional<StudentSkill> findByStudentProfileIdAndSkillId(UUID studentProfileId, UUID skillId);
 
     @org.springframework.data.jpa.repository.Query(

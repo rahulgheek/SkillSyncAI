@@ -62,9 +62,6 @@ public class StudentProfile {
 
     private String major;
 
-    @Column(columnDefinition = "TEXT")
-    private String achievements;
-
     @Column(name = "is_public", nullable = false)
     @Builder.Default
     private boolean isPublic = true;

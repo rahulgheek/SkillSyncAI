@@ -16,7 +16,7 @@ public record ProfileResponse(
         Integer graduationYear,
         List<PreviousProjectResponse> projects,
         List<StudentSkillResponse> skills,
-        String achievements,
+        List<AchievementResponse> achievements,
         boolean isPublic,
         Object aiInsights,
         boolean insightsOutdated,

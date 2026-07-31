@@ -16,4 +16,7 @@ public interface ProjectRepository extends JpaRepository<Project, UUID> {
 
     // For the main recruiting feed, filtered by college
     Page<Project> findAllByCollegeIdAndStatus(UUID collegeId, ProjectStatus status, Pageable pageable);
+    
+    // For AI Discovery Batch Processing
+    java.util.List<Project> findByCollegeIdAndStatus(UUID collegeId, ProjectStatus status);
 }

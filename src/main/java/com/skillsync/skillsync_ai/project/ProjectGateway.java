@@ -12,4 +12,7 @@ public interface ProjectGateway {
     boolean isUserActiveMember(UUID projectId, UUID userId);
     
     java.util.List<ProjectChatContext> getUserActiveProjects(UUID userId);
+    
+    record ProjectDiscoveryContext(UUID projectId, String title, String description) {}
+    ProjectDiscoveryContext getProjectDiscoveryContext(UUID projectId);
 }
