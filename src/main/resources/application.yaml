@@ -1,6 +1,6 @@
 spring:
   config:
-    import: "file:./.env.properties"
+    import: "optional:file:./.env.properties"
   application:
     name: skillsync-ai
 
@@ -60,7 +60,7 @@ spring:
       sasl.jaas.config: org.apache.kafka.common.security.scram.ScramLoginModule required username="${KAFKA_USER}" password="${KAFKA_PASSWORD}";
 
 server:
-  port: 8080
+  port: ${PORT:8080}
 
 gemini:
   api:
