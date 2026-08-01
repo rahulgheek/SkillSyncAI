@@ -15,11 +15,11 @@ public class WebCorsConfig {
         CorsConfiguration configuration = new CorsConfiguration();
 
         // 1. Specify Allowed Origins explicitly (Do NOT use "*" when allowCredentials is true)
-        configuration.setAllowedOrigins(List.of(
-                "http://localhost:5173",       // Vite standard dev port
-                "http://localhost:5173",       // Vite / React standard dev port
-                "http://127.0.0.1:5173",       // Alternate local Vite port
-                "https://skill-sync-ai-web.vercel.app"  // Lovable Cloud Preview domain
+        configuration.setAllowedOriginPatterns(List.of(
+                "http://localhost:*",       // Local development
+                "http://127.0.0.1:*",       // Local development
+                "https://*.vercel.app",     // Any Vercel deployment
+                "https://*.onrender.com"    // Any Render deployment
         ));
 
         // 2. Expose essential HTTP Methods

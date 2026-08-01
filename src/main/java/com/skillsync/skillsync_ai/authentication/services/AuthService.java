@@ -56,9 +56,16 @@ public class AuthService {
             return "OTP resent. Please check your college email.";
         }
 
-        // Fetch the seeded college for this deployment or use a default one
+        // Fetch the seeded college for this deployment or auto-create a default one if the DB is completely empty
         College college = collegeRepository.findAll().stream().findFirst()
-                .orElseThrow(() -> new RuntimeException("System Error: No college seeded in the database."));
+                .orElseGet(() -> {
+                    College newCollege = College.builder()
+                            .name("SkillSync University")
+                            .emailDomain(CAMPUS_DOMAIN)
+                            .isActive(true)
+                            .build();
+                    return collegeRepository.save(newCollege);
+                });
 
         User user = User.builder()
                 .email(request.email())
