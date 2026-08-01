@@ -46,7 +46,7 @@ spring:
   kafka:
     bootstrap-servers: ${KAFKA_HOST}
     ssl:
-      trust-store-location: classpath:ca.pem
+      trust-store-location: ${KAFKA_TRUST_STORE_LOCATION:classpath:ca.pem}
       trust-store-type: PEM
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer

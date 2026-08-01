@@ -17,6 +17,10 @@ WORKDIR /app
 # Copy the built jar from the build stage
 COPY --from=build /app/target/skillsync-ai-0.0.1-SNAPSHOT.jar app.jar
 
+# Extract the Kafka SSL certificate from the build stage to the filesystem
+COPY --from=build /app/src/main/resources/ca.pem /app/ca.pem
+ENV KAFKA_TRUST_STORE_LOCATION=file:/app/ca.pem
+
 # Expose the port the app runs on
 EXPOSE 8080
 
