@@ -20,5 +20,5 @@ COPY --from=build /app/target/skillsync-ai-0.0.1-SNAPSHOT.jar app.jar
 # Expose the port the app runs on
 EXPOSE 8080
 
-# Run the application (with memory limits for Render free tier)
-ENTRYPOINT ["java", "-Xmx300m", "-jar", "app.jar"]
+# Run the application (with memory limits and Netty fixes for Alpine/Render)
+ENTRYPOINT ["java", "-Xmx300m", "-Djava.net.preferIPv4Stack=true", "-Dio.netty.transport.noNative=true", "-jar", "app.jar"]
