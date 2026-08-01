@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  skillsync-backend:
+    build: .
+    container_name: skillsync-backend
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env.properties
+    restart: unless-stopped
+    # If you need to deploy PostgreSQL, Redis, or Kafka locally instead of using cloud providers, 
+    # you can define them as additional services here and update your .env.properties to point to them.
