@@ -23,28 +23,6 @@ public class PdfResumeExtractorService {
         log.info("Downloading and extracting text from PDF: {}", pdfUrl);
         try {
             String downloadUrl = pdfUrl;
-            
-            // Generate a signed URL if it's a Cloudinary URL to bypass ACL restrictions
-            if (pdfUrl.contains("res.cloudinary.com")) {
-                try {
-                    String resourceType = pdfUrl.contains("/raw/upload") ? "raw" : "image";
-                    String afterUpload = pdfUrl.substring(pdfUrl.indexOf("upload/") + 7);
-                    // Handle optional version string (v1234567/)
-                    String publicId = afterUpload;
-                    if (afterUpload.matches("^v\\d+/.*")) {
-                        publicId = afterUpload.substring(afterUpload.indexOf("/") + 1);
-                    }
-                    
-                    downloadUrl = cloudinary.url()
-                            .resourceType(resourceType)
-                            .type("upload")
-                            .signed(true)
-                            .generate(publicId);
-                    log.info("Generated signed Cloudinary URL for public ID: {}", publicId);
-                } catch (Exception e) {
-                    log.warn("Failed to generate signed Cloudinary URL, falling back to original URL: {}", e.getMessage());
-                }
-            }
 
             URL url = new URL(downloadUrl);
             URLConnection connection = url.openConnection();

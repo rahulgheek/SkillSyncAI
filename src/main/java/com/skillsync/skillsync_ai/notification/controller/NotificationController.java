@@ -11,6 +11,7 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.Map;
 import java.util.UUID;
@@ -21,6 +22,12 @@ import java.util.UUID;
 public class NotificationController {
 
     private final NotificationService notificationService;
+    private final com.skillsync.skillsync_ai.notification.services.SseConnectionService sseConnectionService;
+
+    @GetMapping(value = "/stream", produces = org.springframework.http.MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamNotifications(@AuthenticationPrincipal User currentUser) {
+        return sseConnectionService.createEmitter(currentUser.getId());
+    }
 
     @GetMapping
     public ResponseEntity<ApiResponse<Page<NotificationResponse>>> getMyNotifications(

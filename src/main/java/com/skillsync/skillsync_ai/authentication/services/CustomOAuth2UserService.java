@@ -36,10 +36,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         String email = (String) attributes.get("email");
         String googleSubjectId = (String) attributes.get("sub");
 
-        if (email == null || !email.endsWith("@" + CAMPUS_DOMAIN)) {
-            throw new OAuth2AuthenticationException(new OAuth2Error("invalid_domain"), "Must use a valid " + CAMPUS_DOMAIN + " email.");
-        }
-
+        // Domain validation removed per user request
         // Fetch or create user
         Optional<User> userOptional = userRepository.findByEmail(email);
         User user;
@@ -55,8 +52,8 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             }
         } else {
             // First time login via Google -> Create account
-            College college = collegeRepository.findByEmailDomain(CAMPUS_DOMAIN)
-                    .orElseThrow(() -> new RuntimeException("System configuration error: College domain not seeded."));
+            College college = collegeRepository.findAll().stream().findFirst()
+                    .orElseThrow(() -> new RuntimeException("System configuration error: No college seeded."));
 
             user = User.builder()
                     .email(email)

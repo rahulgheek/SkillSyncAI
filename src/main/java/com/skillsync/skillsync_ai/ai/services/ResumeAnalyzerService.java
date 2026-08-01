@@ -9,7 +9,10 @@ import com.skillsync.skillsync_ai.common.events.ResumeUploadedEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.modulith.events.ApplicationModuleListener;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.core.KafkaTemplate;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.skillsync.skillsync_ai.common.config.KafkaConfig;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -23,12 +26,13 @@ public class ResumeAnalyzerService {
 
     private final SkillAnalysisResultRepository analysisRepository;
     private final GeminiApiService geminiApiService;
-    private final ApplicationEventPublisher eventPublisher;
     private final PdfResumeExtractorService pdfResumeExtractor;
+    private final KafkaTemplate<String, String> kafkaTemplate;
+    private final ObjectMapper objectMapper;
 
-    @ApplicationModuleListener
+    @KafkaListener(topics = KafkaConfig.RESUME_UPLOADED_TOPIC, groupId = "ai-module-group")
     void onResumeUploaded(ResumeUploadedEvent event) {
-        log.info("AI Module intercepted ResumeUploadedEvent for User ID: {}", event.userId());
+        log.info("AI Module intercepted ResumeUploadedEvent via Kafka for User ID: {}", event.userId());
 
         SkillAnalysisResult result = SkillAnalysisResult.builder()
                 .userId(event.userId())
@@ -73,7 +77,8 @@ public class ResumeAnalyzerService {
             result.setStatus(AnalysisStatus.COMPLETED);
             analysisRepository.save(result);
 
-            eventPublisher.publishEvent(new ResumeAnalysisCompletedEvent(event.userId(), finalSkills));
+            ResumeAnalysisCompletedEvent completedEvent = new ResumeAnalysisCompletedEvent(event.userId(), finalSkills, result.getSummary());
+            kafkaTemplate.send(KafkaConfig.RESUME_ANALYZED_TOPIC, event.userId().toString(), objectMapper.writeValueAsString(completedEvent));
             log.info("Gemini successfully analyzed resume for User ID: {}", event.userId());
 
         } catch (Exception e) {

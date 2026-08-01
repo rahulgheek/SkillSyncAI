@@ -31,8 +31,9 @@ public class ProjectMatchmakingPreparationListener {
 
     @ApplicationModuleListener
     public void onProjectPublished(ProjectPublishedEvent event) {
-        log.info("UserProfile gathering structured candidate data for Project: {}", event.projectId());
-
+        log.info("Project published: {}. AI matchmaking is disabled per user request.", event.projectId());
+        // AI Candidate generation is temporarily disabled.
+        /*
         List<StudentSkillProjection> rawSkills = studentSkillRepository.findAllActiveStudentSkills();
 
         // Map directly into the new structured AiSkill objects
@@ -69,5 +70,6 @@ public class ProjectMatchmakingPreparationListener {
         eventPublisher.publishEvent(new CandidateBatchReadyForAiEvent(
                 event.projectId(), event.requiredSkillsJson(), candidates
         ));
+        */
     }
 }

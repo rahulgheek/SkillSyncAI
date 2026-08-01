@@ -13,15 +13,12 @@ import java.time.Duration;
 @Configuration
 public class Bucket4jConfig {
 
-    @Value("${spring.data.redis.host:localhost}")
-    private String redisHost;
-
-    @Value("${spring.data.redis.port:6379}")
-    private int redisPort;
+    @Value("${spring.data.redis.url:redis://localhost:6379}")
+    private String redisUrl;
 
     @Bean
     public RedisClient lettuceRedisClient() {
-        return RedisClient.create("redis://" + redisHost + ":" + redisPort);
+        return RedisClient.create(redisUrl);
     }
 
     @Bean

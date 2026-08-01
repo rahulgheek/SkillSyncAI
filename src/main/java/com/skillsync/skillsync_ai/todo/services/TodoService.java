@@ -160,10 +160,7 @@ public class TodoService {
             .filter(t -> event.checkpointIds().contains(t.getRelatedEntityId()))
             .toList();
             
-        for (Todo t : activeTodos) {
-            t.setStatus(TodoStatus.CANCELLED);
-        }
-        todoRepository.saveAll(activeTodos);
+        todoRepository.deleteAll(activeTodos);
     }
 
     private TodoResponse mapToResponse(Todo t) {

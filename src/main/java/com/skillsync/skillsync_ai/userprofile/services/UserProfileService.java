@@ -18,6 +18,9 @@ import java.util.Map;
 import java.util.UUID;
 import com.skillsync.skillsync_ai.common.exception.ResourceNotFoundException;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class UserProfileService {
@@ -153,7 +156,8 @@ public class UserProfileService {
             try {
                 aiInsightsObj = objectMapper.readValue(profile.getAiInsights(), Object.class);
             } catch (Exception e) {
-                // Ignore parse errors, just return null
+                // Ignore parse errors, just return null, but log it so we know
+                log.warn("Failed to parse AI Insights JSON for profile {}: {}", profile.getId(), e.getMessage());
             }
         }
 

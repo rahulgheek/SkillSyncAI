@@ -19,7 +19,7 @@ public class WebCorsConfig {
                 "http://localhost:5173",       // Vite standard dev port
                 "http://localhost:5173",       // Vite / React standard dev port
                 "http://127.0.0.1:5173",       // Alternate local Vite port
-                "https://unaired-maroon-cradling.ngrok-free.dev"  // Lovable Cloud Preview domain
+                "https://skill-sync-ai-web.vercel.app"  // Lovable Cloud Preview domain
         ));
 
         // 2. Expose essential HTTP Methods

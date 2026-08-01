@@ -30,13 +30,12 @@ public class AuthService {
     private final OtpService otpService;
     private final JwtService jwtService;
     private final AuthenticationProvider authenticationProvider;
+    private final MailService mailService;
 
     private static final String CAMPUS_DOMAIN = "chitkara.edu.in";
 
     @Transactional
     public String registerStudent(RegisterRequest request) {
-        validateCollegeDomain(request.email());
-
         Optional<User> existingUser = userRepository.findByEmail(request.email());
         if (existingUser.isPresent()) {
             if (existingUser.get().isEmailVerified()) {
@@ -48,14 +47,18 @@ public class AuthService {
             otpService.saveOtp(request.email(), otp);
 
             log.info("Resent OTP to unverified user: {}", request.email());
-            log.info("DEV MODE OTP for {}: {}", request.email(), otp); // TODO: Remove in Prod
+            mailService.sendMail(
+                request.email(),
+                "Your SkillSync AI Verification Code",
+                "Your verification code is: " + otp + "\n\nThis code will expire in 5 minutes."
+            );
 
-            return "OTP resent. Please verify your college email.";
+            return "OTP resent. Please check your college email.";
         }
 
-        // Fetch the seeded college for this deployment
-        College college = collegeRepository.findByEmailDomain(CAMPUS_DOMAIN)
-                .orElseThrow(() -> new RuntimeException("System Error: College domain " + CAMPUS_DOMAIN + " is not seeded in the database."));
+        // Fetch the seeded college for this deployment or use a default one
+        College college = collegeRepository.findAll().stream().findFirst()
+                .orElseThrow(() -> new RuntimeException("System Error: No college seeded in the database."));
 
         User user = User.builder()
                 .email(request.email())
@@ -72,7 +75,12 @@ public class AuthService {
         String otp = generateOTP();
         otpService.saveOtp(request.email(), otp);
 
-        log.info("DEV MODE OTP for {}: {}", request.email(), otp); // TODO: Remove in Prod, send via Email service
+        log.info("Sending OTP to {}: {}", request.email(), otp);
+        mailService.sendMail(
+            request.email(),
+            "Welcome to SkillSync AI! Verification Code",
+            "Your verification code is: " + otp + "\n\nThis code will expire in 5 minutes."
+        );
 
         return "Student registration initiated. Check your college email for the OTP.";
     }
@@ -124,12 +132,7 @@ public class AuthService {
         return new AuthResponse(accessToken, "Login successful");
     }
 
-    private void validateCollegeDomain(String email) {
-        if (email == null || !email.toLowerCase().endsWith("@" + CAMPUS_DOMAIN)) {
-            throw new RuntimeException("Registration restricted: Must use a valid university email address (@" + CAMPUS_DOMAIN + ").");
-        }
-    }
-
+    // Domain validation removed per user request
     private String generateOTP() {
         return String.valueOf(100000 + new Random().nextInt(900000));
     }
