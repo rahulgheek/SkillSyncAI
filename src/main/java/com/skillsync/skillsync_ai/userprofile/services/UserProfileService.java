@@ -36,10 +36,17 @@ public class UserProfileService {
 
     private StudentProfile getProfileOrThrow(UUID userId) {
         return profileRepository.findByUserId(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("Profile not found for user: " + userId));
+                .orElseGet(() -> {
+                    StudentProfile profile = new StudentProfile();
+                    profile.setUserId(userId);
+                    profile.setFullName("New User");
+                    profile.setBio("Update your bio here!");
+                    profile.setPublic(true);
+                    return profileRepository.save(profile);
+                });
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public StudentProfile getProfileByUserId(UUID userId) {
         return getProfileOrThrow(userId);
     }
@@ -87,7 +94,7 @@ public class UserProfileService {
                 .map(p -> getAggregatedProfile(p.getUserId()));
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public ProfileResponse getPublicProfile(UUID targetUserId) {
         StudentProfile profile = getProfileOrThrow(targetUserId);
         if (!profile.isPublic()) {
@@ -132,7 +139,7 @@ public class UserProfileService {
         profileRepository.save(profile);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public ProfileResponse getAggregatedProfile(UUID userId) {
         StudentProfile profile = getProfileOrThrow(userId);
 
