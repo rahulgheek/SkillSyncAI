@@ -35,6 +35,11 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
+    @GetMapping("/ping")
+    public ResponseEntity<String> ping() {
+        return ResponseEntity.ok("pong");
+    }
+
     // Add this to AuthController.java
 
     private final org.springframework.data.redis.core.StringRedisTemplate redisTemplate; // Inject this via constructor
