@@ -4,10 +4,6 @@ spring:
   application:
     name: skillsync-ai
 
-app:
-  frontend:
-    oauth2-redirect-url: ${FRONTEND_URL:http://localhost:5173}/oauth2/callback
-
   security:
     oauth2:
       client:
@@ -78,3 +74,7 @@ groq:
   api:
     url: "https://api.groq.com/openai/v1/chat/completions"
     key: ${GROQ_API_KEY}
+
+app:
+  frontend:
+    oauth2-redirect-url: ${FRONTEND_URL:http://localhost:5173}/oauth2/callback
