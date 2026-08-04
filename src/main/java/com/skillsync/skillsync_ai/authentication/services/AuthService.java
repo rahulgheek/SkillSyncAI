@@ -39,7 +39,7 @@ public class AuthService {
         Optional<User> existingUser = userRepository.findByEmail(request.email());
         if (existingUser.isPresent()) {
             if (existingUser.get().isEmailVerified()) {
-                throw new RuntimeException("User already exists and is verified. Please login.");
+                throw new IllegalStateException("User already exists and is verified. Please login.");
             }
 
             // User exists but isn't verified -> Resend OTP
@@ -97,11 +97,11 @@ public class AuthService {
         String storedOtp = otpService.getOtp(request.email());
 
         if (storedOtp == null || !storedOtp.equals(request.otp())) {
-            throw new RuntimeException("Invalid or Expired OTP.");
+            throw new IllegalArgumentException("Invalid or Expired OTP.");
         }
 
         User user = userRepository.findByEmail(request.email())
-                .orElseThrow(() -> new RuntimeException("User does not exist."));
+                .orElseThrow(() -> new IllegalArgumentException("User does not exist."));
 
         user.setEmailVerified(true);
         userRepository.save(user);
@@ -122,14 +122,14 @@ public class AuthService {
         );
 
         User user = userRepository.findByEmail(request.email())
-                .orElseThrow(() -> new RuntimeException("User not found."));
+                .orElseThrow(() -> new IllegalArgumentException("User not found."));
 
         if (!user.isEmailVerified()) {
-            throw new RuntimeException("College email is not verified. Please verify first.");
+            throw new IllegalStateException("College email is not verified. Please verify first.");
         }
 
         if (!user.isActive()) {
-            throw new RuntimeException("This account has been deactivated by an administrator.");
+            throw new IllegalStateException("This account has been deactivated by an administrator.");
         }
 
         java.util.Map<String, Object> extraClaims = new java.util.HashMap<>();
