@@ -61,29 +61,18 @@ to create a complete team-building ecosystem.
 
 A typical SkillSync workflow looks like:
 
-Create Account
-     ↓
-Build Profile
-     ↓
-Add Skills / Resume / Projects
-     ↓
-Create Project
-     ↓
-Define Required Skills
-     ↓
-Discover Candidates
-     ↓
-Heuristic Skill Filtering
-     ↓
-AI Semantic Analysis
-     ↓
-View Candidate Profiles
-     ↓
-Message / Invite
-     ↓
-Form Team
-     ↓
-Collaborate in Real Time
+1. Create Account
+2. Build Profile
+3. Add Skills / Resume / Projects
+4. Create Project
+5. Define Required Skills
+6. Discover Candidates
+7. Heuristic Skill Filtering
+8. AI Semantic Analysis
+9. View Candidate Profiles
+10. Message / Invite
+11. Form Team
+12. Collaborate in Real Time
 
 The goal is to reduce the distance between:
 *"I have an idea."*
@@ -238,15 +227,11 @@ Cross-module communication uses domain events whenever asynchronous communicatio
 Instead of tightly coupling modules through chains of direct calls, modules can publish events that other modules react to.
 
 *Example:*
-Resume Processed
-       ↓
-Skill Extraction Event
-       ↓
-AI Processing
-       ↓
-Skill Updated Event
-       ↓
-Profile / Matching
+1. Resume Processed
+2. Skill Extraction Event
+3. AI Processing
+4. Skill Updated Event
+5. Profile / Matching
 
 Spring Modulith application events are used for internal domain communication, while Kafka provides durable event streaming for workflows that benefit from broker-based asynchronous processing.
 
@@ -255,21 +240,14 @@ Apache Kafka is used for asynchronous event-driven workflows.
 Kafka is particularly useful when work should continue in the background after an HTTP request has completed.
 
 *Example:*
-Resume Uploaded
-       ↓
-HTTP Request Completes
-       ↓
-Resume Processing Event
-       ↓
-Kafka
-       ↓
-Background Consumer
-       ↓
-PDF Parsing
-       ↓
-AI Analysis
-       ↓
-Profile Update
+1. Resume Uploaded
+2. HTTP Request Completes
+3. Resume Processing Event
+4. Kafka
+5. Background Consumer
+6. PDF Parsing
+7. AI Analysis
+8. Profile Update
 
 This prevents expensive resume-analysis work from unnecessarily occupying the original HTTP request.
 
@@ -297,21 +275,14 @@ Bucket4j can use Redis-backed state for rate limiting expensive operations such 
 ### AI Matching Pipeline
 The recommendation system uses a controlled funnel rather than sending every student directly to an AI model.
 
-Project
-   ↓
-Required Skills
-   ↓
-College / User Filtering
-   ↓
-Skill Overlap Heuristic
-   ↓
-Top Candidates
-   ↓
-AI Semantic Analysis
-   ↓
-Compatibility Score
-   ↓
-Recommendation
+1. Project
+2. Required Skills
+3. College / User Filtering
+4. Skill Overlap Heuristic
+5. Top Candidates
+6. AI Semantic Analysis
+7. Compatibility Score
+8. Recommendation
 
 This provides two major advantages:
 1. **Performance**: AI processing is limited to candidates that have already passed deterministic filtering.
@@ -363,18 +334,10 @@ Resume PDFs are processed using Apache PDFBox before being passed into downstrea
 ### Real-Time Architecture
 Messaging uses Spring WebSocket + STOMP.
 Instead of repeatedly polling:
-Frontend
-   ↓
-Poll
-   ↓
-Backend
+Frontend → Poll → Backend
 
 the platform can push events directly:
-Backend Event
-      ↓
-WebSocket / STOMP
-      ↓
-Connected Client
+Backend Event → WebSocket / STOMP → Connected Client
 
 This is useful for messaging, notifications, team events, and asynchronous workflow updates.
 
@@ -563,8 +526,7 @@ The primary engineering challenge is coordinating multiple workflows while keepi
 ## Author
 
 **Rahul Gheek**
-Computer Science Engineering Student
-Backend / Java Developer
+Computer Science Engineering Student Java Developer
 
 **Focus Areas**
 - Java
