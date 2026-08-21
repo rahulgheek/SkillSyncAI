@@ -6,6 +6,7 @@ import com.skillsync.skillsync_ai.userprofile.entity.StudentProfile;
 import com.skillsync.skillsync_ai.userprofile.repo.StudentProfileRepository;
 import com.skillsync.skillsync_ai.userprofile.repo.StudentSkillRepository;
 import lombok.RequiredArgsConstructor;
+import com.skillsync.skillsync_ai.authentication.repo.UserRepository;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +27,7 @@ import lombok.extern.slf4j.Slf4j;
 public class UserProfileService {
 
     private final StudentProfileRepository profileRepository;
+    private final UserRepository userRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final PreviousProjectService previousProjectService;
     private final AchievementService achievementService;
@@ -100,7 +102,16 @@ public class UserProfileService {
         if (!profile.isPublic()) {
             throw new com.skillsync.skillsync_ai.common.exception.UnauthorizedActionException("This profile is private.");
         }
-        return getAggregatedProfile(targetUserId);
+        ProfileResponse full = getAggregatedProfile(targetUserId);
+        // Strip email — only the owner should see their own email
+        return new ProfileResponse(
+                full.userId(), full.fullName(), null, full.bio(),
+                full.profilePictureUrl(), full.resumeUrl(), full.linkedinUrl(),
+                full.githubUrl(), full.portfolioUrl(), full.major(),
+                full.graduationYear(), full.projects(), full.skills(),
+                full.achievements(), full.isPublic(), full.aiInsights(),
+                full.insightsOutdated(), full.resumeSummary()
+        );
     }
 
     @Transactional
@@ -170,9 +181,14 @@ public class UserProfileService {
 
         List<AchievementResponse> achievements = achievementService.getAchievementsByProfile(profile.getId());
 
+        String userEmail = userRepository.findById(userId)
+                .map(com.skillsync.skillsync_ai.authentication.entity.User::getEmail)
+                .orElse("");
+
         return new ProfileResponse(
                 profile.getUserId(),
                 profile.getFullName(),
+                userEmail,
                 profile.getBio(),
                 profile.getProfilePictureUrl(),
                 profile.getResumeUrl(),

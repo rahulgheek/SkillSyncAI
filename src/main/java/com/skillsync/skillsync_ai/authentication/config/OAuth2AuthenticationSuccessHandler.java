@@ -38,7 +38,9 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
                 .orElseThrow(() -> new RuntimeException("User not found after OAuth2 success"));
 
         // 1. Mint the JWT Access Token
-        String accessToken = jwtService.generateToken(user);
+        java.util.Map<String, Object> extraClaims = new java.util.HashMap<>();
+        extraClaims.put("userId", user.getId().toString());
+        String accessToken = jwtService.generateToken(extraClaims, user);
 
         // 2. Generate a secure, one-time exchange code
         String exchangeCode = UUID.randomUUID().toString();

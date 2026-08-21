@@ -3,6 +3,7 @@ package com.skillsync.skillsync_ai.authentication.controller;
 import com.skillsync.skillsync_ai.authentication.dto.AuthResponse;
 import com.skillsync.skillsync_ai.authentication.dto.LoginRequest;
 import com.skillsync.skillsync_ai.authentication.dto.RegisterRequest;
+import com.skillsync.skillsync_ai.authentication.dto.ResendOtpRequest;
 import com.skillsync.skillsync_ai.authentication.dto.VerifyRequest;
 import com.skillsync.skillsync_ai.authentication.services.AuthService;
 import jakarta.validation.Valid;
@@ -20,6 +21,12 @@ public class AuthController {
     @PostMapping("/register")
     public ResponseEntity<String> register(@Valid @RequestBody RegisterRequest request) {
         String response = authService.registerStudent(request);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/resend-otp")
+    public ResponseEntity<String> resendOtp(@Valid @RequestBody ResendOtpRequest request) {
+        String response = authService.resendOtp(request.email());
         return ResponseEntity.ok(response);
     }
 

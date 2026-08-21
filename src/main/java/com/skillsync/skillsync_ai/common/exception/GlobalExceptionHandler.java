@@ -31,6 +31,9 @@ public class GlobalExceptionHandler {
     // Handles Authentication failures (e.g., Bad Credentials, User Not Found)
     @ExceptionHandler(org.springframework.security.core.AuthenticationException.class)
     public ResponseEntity<ApiResponse<Void>> handleAuthenticationException(org.springframework.security.core.AuthenticationException ex) {
+        if (ex instanceof org.springframework.security.authentication.DisabledException) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Email not verified. Please verify your email first."));
+        }
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Invalid email or password."));
     }
 

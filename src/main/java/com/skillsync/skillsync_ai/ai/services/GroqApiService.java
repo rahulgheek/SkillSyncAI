@@ -32,7 +32,7 @@ public class GroqApiService {
         }
 
         Map<String, Object> requestBody = Map.of(
-                "model", "llama-3.3-70b-versatile",
+                "model", "llama-3.1-70b-versatile",
                 "messages", List.of(
                         Map.of("role", "user", "content", prompt)
                 ),

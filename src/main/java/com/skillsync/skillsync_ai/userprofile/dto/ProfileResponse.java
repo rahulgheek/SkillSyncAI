@@ -6,6 +6,7 @@ import java.util.UUID;
 public record ProfileResponse(
         UUID userId,
         String fullName,
+        String email,
         String bio,
         String profilePictureUrl,
         String resumeUrl,

@@ -43,8 +43,14 @@ public class AuthService {
             }
 
             // User exists but isn't verified -> Resend OTP
+            if (otpService.isOnCooldown(request.email())) {
+                long remaining = otpService.getCooldownSeconds(request.email());
+                throw new IllegalStateException("Please wait " + remaining + " seconds before requesting another OTP.");
+            }
+
             String otp = generateOTP();
             otpService.saveOtp(request.email(), otp);
+            otpService.startCooldown(request.email());
 
             log.info("Resent OTP to unverified user: {}", request.email());
             mailService.sendMail(
@@ -81,6 +87,7 @@ public class AuthService {
 
         String otp = generateOTP();
         otpService.saveOtp(request.email(), otp);
+        otpService.startCooldown(request.email());
 
         log.info("Sending OTP to {}: {}", request.email(), otp);
         mailService.sendMail(
@@ -90,6 +97,34 @@ public class AuthService {
         );
 
         return "Student registration initiated. Check your college email for the OTP.";
+    }
+
+    @Transactional
+    public String resendOtp(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("User does not exist."));
+
+        if (user.isEmailVerified()) {
+            throw new IllegalStateException("User already verified. Please login.");
+        }
+
+        if (otpService.isOnCooldown(email)) {
+            long remaining = otpService.getCooldownSeconds(email);
+            throw new IllegalStateException("Please wait " + remaining + " seconds before requesting another OTP.");
+        }
+
+        String otp = generateOTP();
+        otpService.saveOtp(email, otp);
+        otpService.startCooldown(email);
+
+        log.info("Resent OTP to unverified user: {}", email);
+        mailService.sendMail(
+            email,
+            "Your SkillSync AI Verification Code",
+            "Your verification code is: " + otp + "\n\nThis code will expire in 5 minutes."
+        );
+
+        return "OTP resent. Please check your college email.";
     }
 
     @Transactional
