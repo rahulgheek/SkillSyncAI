@@ -4,13 +4,21 @@ import io.github.bucket4j.distributed.ExpirationAfterWriteStrategy;
 import io.github.bucket4j.distributed.proxy.ProxyManager;
 import io.github.bucket4j.redis.lettuce.cas.LettuceBasedProxyManager;
 import io.lettuce.core.RedisClient;
+
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.time.Duration;
 
+/**
+ * Bucket4j + Lettuce state for the Redis rate-limit backend. Only created
+ * when app.kv.store=redis (default) so the Cacheify backend never spins up
+ * a Redis client against its HTTPS endpoint &mdash; and vice versa.
+ */
 @Configuration
+@ConditionalOnProperty(name = "app.kv.store", havingValue = "redis", matchIfMissing = true)
 public class Bucket4jConfig {
 
     @Value("${spring.data.redis.url:redis://localhost:6379}")

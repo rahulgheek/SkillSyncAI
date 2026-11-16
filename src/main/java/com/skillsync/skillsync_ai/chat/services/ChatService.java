@@ -16,6 +16,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.Collections;
@@ -30,6 +31,7 @@ public class ChatService {
     private final ConversationRepository conversationRepository;
     private final ChatMessageRepository messageRepository;
     private final AiChatGateway aiChatGateway;
+    private final TransactionTemplate transactionTemplate;
 
     @Transactional(readOnly = true)
     public Page<ConversationResponse> getUserConversations(UUID userId, Pageable pageable) {
@@ -63,35 +65,46 @@ public class ChatService {
         conversationRepository.delete(conversation);
     }
 
-    @Transactional
+    /**
+     * The Gemini agent loop is an external call and can run for ~25 seconds.
+     * It runs with no database transaction open: phase 1 loads the history and
+     * saves the user message, phase 2 saves the model reply. Tool handlers
+     * invoked during the AI turn open their own short read transactions.
+     */
     public String sendMessage(UUID userId, UUID conversationId, String userText) {
-        Conversation conversation = verifyOwnership(userId, conversationId);
+        List<ChatTurn> history = transactionTemplate.execute(status -> {
+            verifyOwnership(userId, conversationId);
 
-        // 1. Fetch history BEFORE saving the new message (Fixes the double-message bug)
-        var recentMessages = messageRepository.findAllByConversationIdOrderByCreatedAtDesc(
-                conversationId, PageRequest.of(0, 30)).getContent();
+            // 1. Fetch history BEFORE saving the new message (Fixes the double-message bug)
+            var recentMessages = messageRepository.findAllByConversationIdOrderByCreatedAtDesc(
+                    conversationId, PageRequest.of(0, 30)).getContent();
 
-        List<ChatMessage> keptMessages = new java.util.ArrayList<>(recentMessages);
-        Collections.reverse(keptMessages); // Put back in chronological order
+            List<ChatMessage> keptMessages = new java.util.ArrayList<>(recentMessages);
+            Collections.reverse(keptMessages); // Put back in chronological order
 
-        List<ChatTurn> history = keptMessages.stream()
-                .map(msg -> new ChatTurn(msg.getRole(), msg.getContent()))
-                .collect(Collectors.toList());
+            List<ChatTurn> turns = keptMessages.stream()
+                    .map(msg -> new ChatTurn(msg.getRole(), msg.getContent()))
+                    .collect(Collectors.toList());
 
-        // 2. Save User Message
-        saveMessage(conversationId, MessageRole.USER, userText);
+            // 2. Save User Message
+            saveMessage(conversationId, MessageRole.USER, userText);
 
-        // 3. Fire the Agent
+            return turns;
+        });
+
+        // 3. Fire the Agent without a transaction held for its duration
         String aiResponseText = aiChatGateway.processChatTurn(userId, history, userText);
 
-        // 4. Save Model Message
-        saveMessage(conversationId, MessageRole.MODEL, aiResponseText);
+        transactionTemplate.executeWithoutResult(status -> {
+            // 4. Save Model Message
+            saveMessage(conversationId, MessageRole.MODEL, aiResponseText);
 
-        // 5. Update Conversation Timestamp (Fixes sorting issue)
-        conversation.setUpdatedAt(Instant.now());
-
-        // 6. Future: Trigger async AI title generation here if it's the first message!
-        conversationRepository.save(conversation);
+            // 5. Update Conversation Timestamp (Fixes sorting issue)
+            Conversation conversation = conversationRepository.findById(conversationId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Conversation not found"));
+            conversation.setUpdatedAt(Instant.now());
+            conversationRepository.save(conversation);
+        });
 
         return aiResponseText;
     }

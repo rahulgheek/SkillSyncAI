@@ -1,14 +1,15 @@
 package com.skillsync.skillsync_ai.authentication.filters;
 
-import io.github.bucket4j.Bandwidth;
-import io.github.bucket4j.BucketConfiguration;
-import io.github.bucket4j.ConsumptionProbe;
-import io.github.bucket4j.distributed.proxy.ProxyManager;
+import com.skillsync.skillsync_ai.authentication.store.RateLimitStore;
+import com.skillsync.skillsync_ai.authentication.store.RateLimitStore.TryConsumeResult;
+
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -16,12 +17,31 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.time.Duration;
 
+/**
+ * Rate limits /api/auth/** through the pluggable RateLimitStore:
+ * Bucket4j + Redis (token bucket) by default, or Cacheify's atomic INCR
+ * (fixed window) when app.kv.store=cacheify.
+ */
 @Component
 @RequiredArgsConstructor
 public class RateLimitFilter extends OncePerRequestFilter {
 
-    private final ProxyManager<byte[]> proxyManager;
-    private static final String RATE_LIMIT_PREFIX = "rate_limit:ip:";
+    private final RateLimitStore rateLimitStore;
+
+    private static final long RATE_LIMIT = 5; // requests...
+    private static final Duration RATE_LIMIT_WINDOW = Duration.ofMinutes(1); // ...per minute
+
+    /**
+     * Health checks must not consume the login/register rate-limit budget, and
+     * they should stay usable even when a shared IP has hit the auth limit.
+     */
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return "/api/auth/ping".equals(path)
+                || "/health".equals(path)
+                || path.startsWith("/actuator/health");
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
@@ -31,29 +51,13 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
         if (path.startsWith("/api/auth/")) {
             String clientIp = getClientIp(request);
-            String redisKey = RATE_LIMIT_PREFIX + clientIp;
 
-            // Define the Token Bucket limit: 5 requests per minute
-            BucketConfiguration configuration = BucketConfiguration.builder()
-                    .addLimit(Bandwidth.builder()
-                            .capacity(5)
-                            .refillGreedy(5, Duration.ofMinutes(1))
-                            .build())
-                    .build();
+            TryConsumeResult result = rateLimitStore.tryConsume(clientIp, RATE_LIMIT, RATE_LIMIT_WINDOW);
 
-            // Fetch or create the bucket in Redis for this specific IP
-            var bucket = proxyManager.builder().build(redisKey.getBytes(), configuration);
-
-            // Attempt to consume 1 token
-            ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
-
-            if (!probe.isConsumed()) {
+            if (!result.allowed()) {
                 response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
                 response.setContentType("application/problem+json");
-
-                // Add standard Retry-After header
-                long waitForRefill = probe.getNanosToWaitForRefill() / 1_000_000_000;
-                response.setHeader("Retry-After", String.valueOf(waitForRefill));
+                response.setHeader("Retry-After", String.valueOf(result.retryAfterSeconds()));
 
                 response.getWriter().write("""
                     {

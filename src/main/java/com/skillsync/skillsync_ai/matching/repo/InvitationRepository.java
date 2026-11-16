@@ -7,8 +7,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
-import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
 @Repository
@@ -18,7 +16,4 @@ public interface InvitationRepository extends JpaRepository<Invitation, UUID> {
 
     // Prevent duplicate pending invitations
     boolean existsByProjectIdAndInvitedUserIdAndStatus(UUID projectId, UUID invitedUserId, InvitationStatus status);
-
-    // For scheduled jobs
-    List<Invitation> findAllByStatusAndExpiresAtBefore(InvitationStatus status, Instant now);
 }

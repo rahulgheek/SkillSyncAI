@@ -13,7 +13,7 @@ import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Map;
 import java.util.Optional;
@@ -25,10 +25,15 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
     private final UserRepository userRepository;
     private final CollegeRepository collegeRepository; // You will need to create this basic JpaRepository
+    private final TransactionTemplate transactionTemplate;
     private static final String CAMPUS_DOMAIN = "chitkara.edu.in";
 
+    /**
+     * Google's userinfo call is an external HTTP round-trip, so it runs before
+     * any transaction starts. Only the local user lookup/upsert is wrapped in a
+     * short transaction, keeping Neon connections short-lived.
+     */
     @Override
-    @Transactional
     public OAuth2User loadUser(OAuth2UserRequest userRequest) throws OAuth2AuthenticationException {
         OAuth2User oAuth2User = super.loadUser(userRequest);
         Map<String, Object> attributes = oAuth2User.getAttributes();
@@ -37,34 +42,38 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         String googleSubjectId = (String) attributes.get("sub");
 
         // Domain validation removed per user request
-        // Fetch or create user
-        Optional<User> userOptional = userRepository.findByEmail(email);
-        User user;
+        User user = transactionTemplate.execute(status -> {
+            // Fetch or create user
+            Optional<User> userOptional = userRepository.findByEmail(email);
+            User localUser;
 
-        if (userOptional.isPresent()) {
-            user = userOptional.get();
-            // Link account if they previously signed up with password
-            if (user.getAuthProvider() == User.AuthProvider.LOCAL) {
-                user.setAuthProvider(User.AuthProvider.BOTH);
-                user.setGoogleSubjectId(googleSubjectId);
-                user.setEmailVerified(true); // Google verified it
-                userRepository.save(user);
+            if (userOptional.isPresent()) {
+                localUser = userOptional.get();
+                // Link account if they previously signed up with password
+                if (localUser.getAuthProvider() == User.AuthProvider.LOCAL) {
+                    localUser.setAuthProvider(User.AuthProvider.BOTH);
+                    localUser.setGoogleSubjectId(googleSubjectId);
+                    localUser.setEmailVerified(true); // Google verified it
+                    userRepository.save(localUser);
+                }
+            } else {
+                // First time login via Google -> Create account
+                College college = collegeRepository.findAll().stream().findFirst()
+                        .orElseThrow(() -> new RuntimeException("System configuration error: No college seeded."));
+
+                localUser = User.builder()
+                        .email(email)
+                        .college(college)
+                        .authProvider(User.AuthProvider.GOOGLE)
+                        .googleSubjectId(googleSubjectId)
+                        .role(User.Role.STUDENT)
+                        .isEmailVerified(true)
+                        .build();
+                userRepository.save(localUser);
             }
-        } else {
-            // First time login via Google -> Create account
-            College college = collegeRepository.findAll().stream().findFirst()
-                    .orElseThrow(() -> new RuntimeException("System configuration error: No college seeded."));
 
-            user = User.builder()
-                    .email(email)
-                    .college(college)
-                    .authProvider(User.AuthProvider.GOOGLE)
-                    .googleSubjectId(googleSubjectId)
-                    .role(User.Role.STUDENT)
-                    .isEmailVerified(true)
-                    .build();
-            userRepository.save(user);
-        }
+            return localUser;
+        });
 
         return new DefaultOAuth2User(user.getAuthorities(), attributes, "email");
     }

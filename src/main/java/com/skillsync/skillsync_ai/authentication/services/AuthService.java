@@ -14,7 +14,7 @@ import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Optional;
 import java.util.Random;
@@ -31,10 +31,16 @@ public class AuthService {
     private final JwtService jwtService;
     private final AuthenticationProvider authenticationProvider;
     private final MailService mailService;
+    private final TransactionTemplate transactionTemplate;
 
     private static final String CAMPUS_DOMAIN = "chitkara.edu.in";
 
-    @Transactional
+    /**
+     * The database part of registration runs in a short transaction. OTP
+     * storage and the SMTP call happen afterwards so a slow Cacheify/Redis
+     * request or mail relay can never keep a Neon transaction (and therefore
+     * the compute) open.
+     */
     public String registerStudent(RegisterRequest request) {
         Optional<User> existingUser = userRepository.findByEmail(request.email());
         if (existingUser.isPresent()) {
@@ -42,64 +48,57 @@ public class AuthService {
                 throw new IllegalStateException("User already exists and is verified. Please login.");
             }
 
-            // User exists but isn't verified -> Resend OTP
-            if (otpService.isOnCooldown(request.email())) {
-                long remaining = otpService.getCooldownSeconds(request.email());
-                throw new IllegalStateException("Please wait " + remaining + " seconds before requesting another OTP.");
-            }
-
-            String otp = generateOTP();
-            otpService.saveOtp(request.email(), otp);
-            otpService.startCooldown(request.email());
-
-            log.info("Resent OTP to unverified user: {}", request.email());
-            mailService.sendMail(
-                request.email(),
-                "Your SkillSync AI Verification Code",
-                "Your verification code is: " + otp + "\n\nThis code will expire in 5 minutes."
-            );
-
-            return "OTP resent. Please check your college email.";
+            // User exists but isn't verified -> resend path (KV + SMTP only,
+            // no surrounding database transaction).
+            return resendOtp(request.email());
         }
 
-        // Fetch the seeded college for this deployment or auto-create a default one if the DB is completely empty
-        College college = collegeRepository.findAll().stream().findFirst()
-                .orElseGet(() -> {
-                    College newCollege = College.builder()
-                            .name("SkillSync University")
-                            .emailDomain(CAMPUS_DOMAIN)
-                            .isActive(true)
-                            .build();
-                    return collegeRepository.save(newCollege);
-                });
+        // Insert the unverified user in a short write transaction. No external
+        // call is made while this transaction is open.
+        transactionTemplate.executeWithoutResult(status -> {
+            // Fetch the seeded college for this deployment or auto-create a default one if the DB is completely empty
+            College college = collegeRepository.findAll().stream().findFirst()
+                    .orElseGet(() -> {
+                        College newCollege = College.builder()
+                                .name("SkillSync University")
+                                .emailDomain(CAMPUS_DOMAIN)
+                                .isActive(true)
+                                .build();
+                        return collegeRepository.save(newCollege);
+                    });
 
-        User user = User.builder()
-                .email(request.email())
-                .password(passwordEncoder.encode(request.password()))
-                .college(college)
-                .role(User.Role.STUDENT)
-                .authProvider(User.AuthProvider.LOCAL)
-                .isEmailVerified(false)
-                .isActive(true)
-                .build();
+            User user = User.builder()
+                    .email(request.email())
+                    .password(passwordEncoder.encode(request.password()))
+                    .college(college)
+                    .role(User.Role.STUDENT)
+                    .authProvider(User.AuthProvider.LOCAL)
+                    .isEmailVerified(false)
+                    .isActive(true)
+                    .build();
 
-        userRepository.save(user);
+            userRepository.save(user);
+        });
 
         String otp = generateOTP();
         otpService.saveOtp(request.email(), otp);
         otpService.startCooldown(request.email());
 
-        log.info("Sending OTP to {}: {}", request.email(), otp);
-        mailService.sendMail(
-            request.email(),
-            "Welcome to SkillSync AI! Verification Code",
-            "Your verification code is: " + otp + "\n\nThis code will expire in 5 minutes."
-        );
+        log.info("Sending registration OTP to {}", request.email());
+        sendOtpEmail(new PendingOtpEmail(
+                request.email(),
+                "Welcome to SkillSync AI! Verification Code",
+                otp,
+                "Student registration initiated. Check your college email for the OTP."
+        ));
 
         return "Student registration initiated. Check your college email for the OTP.";
     }
 
-    @Transactional
+    /**
+     * Only a small indexed lookup is needed; no transaction is kept open while
+     * the OTP email is delivered.
+     */
     public String resendOtp(String email) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalArgumentException("User does not exist."));
@@ -118,30 +117,46 @@ public class AuthService {
         otpService.startCooldown(email);
 
         log.info("Resent OTP to unverified user: {}", email);
-        mailService.sendMail(
-            email,
-            "Your SkillSync AI Verification Code",
-            "Your verification code is: " + otp + "\n\nThis code will expire in 5 minutes."
-        );
+        sendOtpEmail(new PendingOtpEmail(
+                email,
+                "Your SkillSync AI Verification Code",
+                otp,
+                "OTP resent. Please check your college email."
+        ));
 
         return "OTP resent. Please check your college email.";
     }
 
-    @Transactional
-    public String verifyOtp(VerifyRequest request) {
-        String storedOtp = otpService.getOtp(request.email());
+    private void sendOtpEmail(PendingOtpEmail pending) {
+        mailService.sendMail(
+                pending.email(),
+                pending.subject(),
+                "Your verification code is: " + pending.otp() + "\n\nThis code will expire in 5 minutes."
+        );
+    }
 
-        if (storedOtp == null || !storedOtp.equals(request.otp())) {
+    private record PendingOtpEmail(String email, String subject, String otp, String message) {
+    }
+
+    /**
+     * The OTP is checked against the KV store before any transaction starts,
+     * the single-row update runs in a short transaction, and the OTP is only
+     * deleted after that commit. No external round-trip holds a DB connection.
+     */
+    public String verifyOtp(VerifyRequest request) {
+        if (!otpService.verifyOtp(request.email(), request.otp())) {
             throw new IllegalArgumentException("Invalid or Expired OTP.");
         }
 
-        User user = userRepository.findByEmail(request.email())
-                .orElseThrow(() -> new IllegalArgumentException("User does not exist."));
+        transactionTemplate.executeWithoutResult(status -> {
+            User user = userRepository.findByEmail(request.email())
+                    .orElseThrow(() -> new IllegalArgumentException("User does not exist."));
 
-        user.setEmailVerified(true);
-        userRepository.save(user);
+            user.setEmailVerified(true);
+            userRepository.save(user);
+        });
 
-        // Clean up OTP from Redis
+        // Clean up OTP from Redis/Cacheify only once the DB write committed.
         otpService.deleteOtp(request.email());
 
         // TODO: (Modulith Integration) Publish UserVerifiedEvent here so the

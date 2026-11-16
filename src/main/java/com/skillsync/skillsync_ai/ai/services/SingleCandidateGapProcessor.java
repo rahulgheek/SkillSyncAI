@@ -9,8 +9,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -26,16 +25,20 @@ public class SingleCandidateGapProcessor {
     private final GeminiApiService geminiApiService;
     private final SkillGapAnalysisRepository skillGapRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final TransactionTemplate transactionTemplate;
 
     private final GeminiApiService.RecommendationPromptFactory promptFactory;
 
     // --- NEW: Recommendation Engine Threshold ---
     private static final double MINIMUM_VIABLE_MATCH_PERCENTAGE = 40.0;
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    /**
+     * The Gemini request runs without a database transaction. Each candidate's
+     * result is then persisted in its own very short transaction.
+     */
     public void processCandidateBatch(List<CandidateProfileForAi> candidates, UUID projectId, String requiredSkillsJson) {
         if (candidates == null || candidates.isEmpty()) return;
-        
+
         try {
             String prompt = promptFactory.buildProjectSkillGapBatchPrompt(requiredSkillsJson, candidates);
             var geminiResponse = geminiApiService.analyzeSkillGapForBatch(prompt).block();
@@ -54,33 +57,38 @@ public class SingleCandidateGapProcessor {
 
                     if (matchPercentage.doubleValue() < MINIMUM_VIABLE_MATCH_PERCENTAGE) {
                         log.info("Candidate {} scored {}%. Below threshold. Discarding recommendation.", userId, matchPercentage);
-                        continue; 
+                        continue;
                     }
-
-                    SkillGapAnalysis gapAnalysis = skillGapRepository.findByUserIdAndProjectId(userId, projectId)
-                            .orElse(SkillGapAnalysis.builder()
-                                    .userId(userId)
-                                    .projectId(projectId)
-                                    .build());
 
                     CandidateProfileForAi matchingCandidate = candidates.stream()
                             .filter(c -> c.userId().equals(userId))
                             .findFirst()
                             .orElse(null);
 
-                    if (matchingCandidate != null) {
-                        gapAnalysis.setStudentProfileId(matchingCandidate.studentProfileId());
-                    }
+                    transactionTemplate.executeWithoutResult(status -> {
+                        SkillGapAnalysis gapAnalysis = skillGapRepository.findByUserIdAndProjectId(userId, projectId)
+                                .orElse(SkillGapAnalysis.builder()
+                                        .userId(userId)
+                                        .projectId(projectId)
+                                        .build());
 
-                    gapAnalysis.setMatchPercentage(matchPercentage);
-                    gapAnalysis.setMissingSkills(mapToSkillGapItems((List<Map<String, String>>) parsedData.get("missingSkills")));
-                    gapAnalysis.setMatchedSkills(mapToSkillGapItems((List<Map<String, String>>) parsedData.get("matchedSkills")));
+                        if (matchingCandidate != null) {
+                            gapAnalysis.setStudentProfileId(matchingCandidate.studentProfileId());
+                        }
 
-                    skillGapRepository.save(gapAnalysis);
+                        gapAnalysis.setMatchPercentage(matchPercentage);
+                        gapAnalysis.setMissingSkills(mapToSkillGapItems((List<Map<String, String>>) parsedData.get("missingSkills")));
+                        gapAnalysis.setMatchedSkills(mapToSkillGapItems((List<Map<String, String>>) parsedData.get("matchedSkills")));
 
-                    eventPublisher.publishEvent(new CompatibilityScoreComputedEvent(
-                            projectId, userId, matchPercentage, (String) parsedData.get("rationale")
-                    ));
+                        skillGapRepository.save(gapAnalysis);
+
+                        // Publish inside the transaction. CompatibilityScoreService
+                        // listens with @TransactionalEventListener, so a publish after
+                        // this template returns would never be delivered.
+                        eventPublisher.publishEvent(new CompatibilityScoreComputedEvent(
+                                projectId, userId, matchPercentage, (String) parsedData.get("rationale")
+                        ));
+                    });
                 } catch (Exception ex) {
                     log.error("Failed to process individual candidate in batch for project {}", projectId, ex);
                 }

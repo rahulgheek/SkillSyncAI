@@ -427,6 +427,13 @@ MAIL_HOST
 MAIL_PORT
 MAIL_USERNAME
 MAIL_PASSWORD
+
+# Shared state backend: redis (default) | cacheify — routes OTP storage,
+# OAuth2 exchange codes and rate limiting through one store layer
+KV_STORE
+CACHEIFY_BASE_URL
+CACHEIFY_DB_ID
+CACHEIFY_API_KEY
 ```
 
 **Never commit API keys, JWT secrets, database passwords, Redis credentials, Kafka credentials, OAuth secrets, SMTP credentials, or private keys to source control.**

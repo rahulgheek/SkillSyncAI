@@ -24,6 +24,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtService jwtService;
     private final UserDetailsService userDetailsService;
 
+    /**
+     * These endpoints never need the authenticated principal. Skipping the
+     * filter is important because {@link #doFilterInternal} resolves the user
+     * from the database; a periodic ping carrying a stale JWT would otherwise
+     * query Neon forever and prevent the compute from suspending.
+     */
+    @Override
+    protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return "/api/auth/ping".equals(path)
+                || "/health".equals(path)
+                || path.startsWith("/actuator/health");
+    }
+
     @Override
     protected void doFilterInternal(
             @NonNull HttpServletRequest request,

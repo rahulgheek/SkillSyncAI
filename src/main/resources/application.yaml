@@ -19,6 +19,19 @@ spring:
     username: "${DB_USER}"
     password: "${DB_PASSWORD}"
     driver-class-name: org.postgresql.Driver
+    hikari:
+      pool-name: SkillSyncPool
+      # Keep the pool at zero connections while the app is idle so Neon can
+      # suspend the compute instead of being kept awake by pool maintenance.
+      minimum-idle: 0
+      maximum-pool-size: 5
+      idle-timeout: 300000
+      # Do not replace healthy connections on a timer; replacement would open
+      # a brand-new connection and wake Neon even when nobody is using the app.
+      max-lifetime: 0
+      keepalive-time: 0
+      connection-timeout: 30000
+      validation-timeout: 5000
   jpa:
     hibernate:
       ddl-auto: validate
@@ -42,9 +55,17 @@ spring:
           starttls:
             enable: true
             required: true
+          # Never hold a database transaction open for minutes because the
+          # SMTP relay is slow or unreachable.
+          connectiontimeout: 10000
+          timeout: 10000
+          writetimeout: 10000
 
   data:
     redis:
+      # Unused when app.kv.store=cacheify (Cacheify backs OTP / OAuth2 exchange codes /
+      # rate limiting over its HTTPS API instead). Only the default redis backend
+      # (local or Upstash) actually connects through here.
       url: ${REDIS_URL:redis://localhost:6379}
   kafka:
     bootstrap-servers: ${KAFKA_HOST}
@@ -75,6 +96,15 @@ groq:
     url: "https://api.groq.com/openai/v1/chat/completions"
     key: ${GROQ_API_KEY}
 
+cacheify:
+  base-url: ${CACHEIFY_BASE_URL:https://cacheify.bot-keep.xyz}
+  database-id: ${CACHEIFY_DB_ID:rdb_15d6788f-6d67-4b4f-af71-427a475358ca}
+  api-key: ${CACHEIFY_API_KEY:}
+
 app:
+  kv:
+    # Backend for all Redis-style state (OTP storage, OAuth2 exchange codes, rate limiting):
+    # redis (default) | cacheify. Legacy OTP_STORE env var is still honored when KV_STORE is unset.
+    store: ${KV_STORE:${OTP_STORE:redis}}
   frontend:
     oauth2-redirect-url: ${FRONTEND_URL:http://localhost:5173}/oauth2/callback

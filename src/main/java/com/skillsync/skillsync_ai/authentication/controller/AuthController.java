@@ -6,6 +6,7 @@ import com.skillsync.skillsync_ai.authentication.dto.RegisterRequest;
 import com.skillsync.skillsync_ai.authentication.dto.ResendOtpRequest;
 import com.skillsync.skillsync_ai.authentication.dto.VerifyRequest;
 import com.skillsync.skillsync_ai.authentication.services.AuthService;
+import com.skillsync.skillsync_ai.authentication.store.ExchangeCodeStore;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -47,22 +48,13 @@ public class AuthController {
         return ResponseEntity.ok("pong");
     }
 
-    // Add this to AuthController.java
-
-    private final org.springframework.data.redis.core.StringRedisTemplate redisTemplate; // Inject this via constructor
+    private final ExchangeCodeStore exchangeCodeStore;
 
     @GetMapping("/oauth2/exchange")
     public ResponseEntity<AuthResponse> exchangeCodeForToken(@RequestParam String code) {
-        String redisKey = "oauth2_exchange:" + code;
-        String token = redisTemplate.opsForValue().get(redisKey);
-
-        if (token == null) {
-            return ResponseEntity.status(400).body(new AuthResponse(null, "Invalid or expired exchange code."));
-        }
-
-        // Delete it immediately so it can only be used ONCE
-        redisTemplate.delete(redisKey);
-
-        return ResponseEntity.ok(new AuthResponse(token, "OAuth2 login successful"));
+        return exchangeCodeStore.consume(code)
+                .map(token -> ResponseEntity.ok(new AuthResponse(token, "OAuth2 login successful")))
+                .orElseGet(() -> ResponseEntity.status(400)
+                        .body(new AuthResponse(null, "Invalid or expired exchange code.")));
     }
 }

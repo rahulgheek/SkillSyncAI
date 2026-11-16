@@ -10,6 +10,7 @@ import com.skillsync.skillsync_ai.authentication.repo.UserRepository;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.skillsync.skillsync_ai.common.config.KafkaConfig;
@@ -35,6 +36,7 @@ public class UserProfileService {
     private final com.skillsync.skillsync_ai.ai.services.GeminiApiService geminiApiService;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper;
+    private final TransactionTemplate transactionTemplate;
 
     private StudentProfile getProfileOrThrow(UUID userId) {
         return profileRepository.findByUserId(userId)
@@ -207,10 +209,13 @@ public class UserProfileService {
         );
     }
 
-    @Transactional
+    /**
+     * Gemini is an external, potentially slow call. Keep it outside any
+     * database transaction so Neon is not kept awake for the duration.
+     */
     public ProfileResponse generateAiInsights(UUID userId) {
-        ProfileResponse profile = getAggregatedProfile(userId);
-        
+        ProfileResponse profile = transactionTemplate.execute(status -> getAggregatedProfile(userId));
+
         StringBuilder contextBuilder = new StringBuilder();
         contextBuilder.append("Bio: ").append(profile.bio()).append("\n");
         contextBuilder.append("Major: ").append(profile.major()).append("\n");
@@ -248,14 +253,17 @@ public class UserProfileService {
                 insightsJson = insightsJson.substring(0, insightsJson.length() - 3);
             }
             insightsJson = insightsJson.trim();
-            
-            StudentProfile studentProfile = profileRepository.findByUserId(userId).orElseThrow();
-            studentProfile.setAiInsights(insightsJson);
-            studentProfile.setInsightsOutdated(false);
-            profileRepository.save(studentProfile);
+            String finalInsightsJson = insightsJson;
+
+            transactionTemplate.executeWithoutResult(status -> {
+                StudentProfile studentProfile = profileRepository.findByUserId(userId).orElseThrow();
+                studentProfile.setAiInsights(finalInsightsJson);
+                studentProfile.setInsightsOutdated(false);
+                profileRepository.save(studentProfile);
+            });
         }
 
-        return getAggregatedProfile(userId);
+        return transactionTemplate.execute(status -> getAggregatedProfile(userId));
     }
     public Map<UUID, String> getAllUserSkillsForMatching() {
         return studentSkillRepository.findAll().stream()

@@ -17,12 +17,10 @@ import com.skillsync.skillsync_ai.userprofile.entity.StudentProfile;
 import com.skillsync.skillsync_ai.userprofile.repo.StudentProfileRepository;
 import com.skillsync.skillsync_ai.userprofile.repo.StudentSkillRepository;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import java.util.stream.Collectors;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,7 +29,6 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class TeamMatchingService {
@@ -225,15 +222,9 @@ public class TeamMatchingService {
         return invitationRepository.findAllByProjectId(projectId, pageable).map(this::mapToInvResponse);
     }
 
-    // --- SCHEDULED JOB ---
-    @Scheduled(cron = "0 0 * * * *") // Runs every hour
-    @Transactional
-    public void expireOldInvitations() {
-        log.info("Running scheduled job to expire pending invitations...");
-        List<Invitation> expired = invitationRepository.findAllByStatusAndExpiresAtBefore(InvitationStatus.PENDING, Instant.now());
-        expired.forEach(inv -> inv.setStatus(InvitationStatus.EXPIRED));
-        invitationRepository.saveAll(expired);
-    }
+    // Invitations are expired lazily in respondToInvitation(). There is no
+    // scheduled sweep because a periodic database query wakes Neon and keeps
+    // the compute from scaling to zero.
 
     // --- MAPPERS ---
     private ApplicationResponse mapToAppResponse(Application a) {
