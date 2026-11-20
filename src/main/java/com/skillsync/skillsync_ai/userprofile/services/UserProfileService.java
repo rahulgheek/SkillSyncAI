@@ -94,8 +94,14 @@ public class UserProfileService {
 
     @Transactional(readOnly = true)
     public org.springframework.data.domain.Page<ProfileResponse> searchPublicProfiles(String query, UUID currentUserId, org.springframework.data.domain.Pageable pageable) {
-        return profileRepository.searchPublicProfiles(query != null ? query : "", currentUserId, pageable)
-                .map(p -> getAggregatedProfile(p.getUserId()));
+        org.springframework.data.domain.Page<StudentProfile> page =
+                profileRepository.searchPublicProfiles(query != null ? query : "", currentUserId, pageable);
+
+        // Load profiles, emails, projects, skills and achievements in batches.
+        // The previous implementation ran five queries per profile, which is
+        // catastrophic on a remote Neon connection.
+        Map<UUID, ProfileResponse> responses = buildProfileResponses(page.getContent());
+        return page.map(p -> responses.get(p.getUserId()));
     }
 
     @Transactional
@@ -104,7 +110,7 @@ public class UserProfileService {
         if (!profile.isPublic()) {
             throw new com.skillsync.skillsync_ai.common.exception.UnauthorizedActionException("This profile is private.");
         }
-        ProfileResponse full = getAggregatedProfile(targetUserId);
+        ProfileResponse full = buildProfileResponses(List.of(profile)).get(targetUserId);
         // Strip email — only the owner should see their own email
         return new ProfileResponse(
                 full.userId(), full.fullName(), null, full.bio(),
@@ -155,37 +161,78 @@ public class UserProfileService {
     @Transactional
     public ProfileResponse getAggregatedProfile(UUID userId) {
         StudentProfile profile = getProfileOrThrow(userId);
+        return buildProfileResponses(List.of(profile)).get(userId);
+    }
 
-        List<PreviousProjectResponse> projects = previousProjectService.getProjectsForUser(userId);
+    /**
+     * Builds profile responses with a fixed number of queries regardless of
+     * how many profiles are on the page.
+     */
+    private Map<UUID, ProfileResponse> buildProfileResponses(List<StudentProfile> profiles) {
+        if (profiles == null || profiles.isEmpty()) {
+            return Map.of();
+        }
 
-        // Fetch and map the skills!
-        List<StudentSkillResponse> skills = studentSkillRepository.findAllByStudentProfileId(profile.getId())
-                .stream()
-                .map(ss -> new StudentSkillResponse(
-                        ss.getId(),
-                        ss.getSkill().getId(),
-                        ss.getSkill().getName(),
-                        ss.getLevel().name(),
-                        ss.getSource().name(),
-                        ss.getEndorsedCount()
-                ))
-                .toList();
+        List<UUID> userIds = profiles.stream().map(StudentProfile::getUserId).distinct().toList();
+        List<UUID> profileIds = profiles.stream().map(StudentProfile::getId).distinct().toList();
+
+        Map<UUID, String> emails = userRepository.findEmailsByIdIn(userIds).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        com.skillsync.skillsync_ai.authentication.repo.UserRepository.UserEmailProjection::getId,
+                        com.skillsync.skillsync_ai.authentication.repo.UserRepository.UserEmailProjection::getEmail
+                ));
+
+        Map<UUID, List<PreviousProjectResponse>> projectsByUser =
+                previousProjectService.getProjectsForUsers(userIds);
+
+        Map<UUID, List<StudentSkillResponse>> skillsByProfile = studentSkillRepository
+                .findAllByStudentProfileIdIn(profileIds).stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        ss -> ss.getStudentProfile().getId(),
+                        java.util.stream.Collectors.mapping(this::mapStudentSkill, java.util.stream.Collectors.toList())
+                ));
+
+        Map<UUID, List<AchievementResponse>> achievementsByProfile =
+                achievementService.getAchievementsByProfiles(profileIds);
+
+        return profiles.stream().collect(java.util.stream.Collectors.toMap(
+                StudentProfile::getUserId,
+                profile -> mapProfileResponse(
+                        profile,
+                        emails.getOrDefault(profile.getUserId(), ""),
+                        projectsByUser.getOrDefault(profile.getUserId(), List.of()),
+                        skillsByProfile.getOrDefault(profile.getId(), List.of()),
+                        achievementsByProfile.getOrDefault(profile.getId(), List.of())
+                )
+        ));
+    }
+
+    private StudentSkillResponse mapStudentSkill(com.skillsync.skillsync_ai.userprofile.entity.StudentSkill ss) {
+        return new StudentSkillResponse(
+                ss.getId(),
+                ss.getSkill().getId(),
+                ss.getSkill().getName(),
+                ss.getLevel().name(),
+                ss.getSource().name(),
+                ss.getEndorsedCount()
+        );
+    }
+
+    private ProfileResponse mapProfileResponse(
+            StudentProfile profile,
+            String userEmail,
+            List<PreviousProjectResponse> projects,
+            List<StudentSkillResponse> skills,
+            List<AchievementResponse> achievements) {
 
         Object aiInsightsObj = null;
         if (profile.getAiInsights() != null && !profile.getAiInsights().isBlank()) {
             try {
                 aiInsightsObj = objectMapper.readValue(profile.getAiInsights(), Object.class);
             } catch (Exception e) {
-                // Ignore parse errors, just return null, but log it so we know
                 log.warn("Failed to parse AI Insights JSON for profile {}: {}", profile.getId(), e.getMessage());
             }
         }
-
-        List<AchievementResponse> achievements = achievementService.getAchievementsByProfile(profile.getId());
-
-        String userEmail = userRepository.findById(userId)
-                .map(com.skillsync.skillsync_ai.authentication.entity.User::getEmail)
-                .orElse("");
 
         return new ProfileResponse(
                 profile.getUserId(),
@@ -200,7 +247,7 @@ public class UserProfileService {
                 profile.getMajor(),
                 profile.getGraduationYear() != null ? (int) profile.getGraduationYear() : null,
                 projects,
-                skills, // Return them to the frontend
+                skills,
                 achievements,
                 profile.isPublic(),
                 aiInsightsObj,
@@ -266,11 +313,12 @@ public class UserProfileService {
         return transactionTemplate.execute(status -> getAggregatedProfile(userId));
     }
     public Map<UUID, String> getAllUserSkillsForMatching() {
-        return studentSkillRepository.findAll().stream()
+        // Projection query: no lazy profile/skill initialisation and no N+1.
+        return studentSkillRepository.findAllActiveStudentSkills().stream()
                 .collect(java.util.stream.Collectors.groupingBy(
-                        ss -> ss.getStudentProfile().getUserId(),
+                        com.skillsync.skillsync_ai.userprofile.repo.StudentSkillProjection::getUserId,
                         java.util.stream.Collectors.mapping(
-                                ss -> ss.getSkill().getName() + " (" + ss.getLevel().name() + ")",
+                                ss -> ss.getSkillName() + " (" + ss.getSkillLevel() + ")",
                                 java.util.stream.Collectors.joining(", ")
                         )
                 ));

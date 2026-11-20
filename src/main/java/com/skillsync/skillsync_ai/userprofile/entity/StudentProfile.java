@@ -12,7 +12,12 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "student_profiles", schema = "profile")
+@Table(
+        name = "student_profiles",
+        schema = "profile",
+        uniqueConstraints = @UniqueConstraint(name = "uk_student_profiles_user", columnNames = "user_id"),
+        indexes = @Index(name = "idx_student_profiles_public_name", columnList = "is_public, full_name")
+)
 @Getter
 @Setter
 @NoArgsConstructor

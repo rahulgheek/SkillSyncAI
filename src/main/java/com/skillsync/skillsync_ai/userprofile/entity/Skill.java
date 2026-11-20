@@ -12,7 +12,12 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "skills", schema = "profile")
+@Table(
+        name = "skills",
+        schema = "profile",
+        uniqueConstraints = @UniqueConstraint(name = "uk_skills_name", columnNames = "name"),
+        indexes = @Index(name = "idx_skills_active_category", columnList = "is_active, category")
+)
 @Getter
 @Setter
 @NoArgsConstructor

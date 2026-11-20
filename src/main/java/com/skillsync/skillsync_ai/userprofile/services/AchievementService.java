@@ -35,6 +35,18 @@ public class AchievementService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
+    public java.util.Map<UUID, List<AchievementResponse>> getAchievementsByProfiles(java.util.Collection<UUID> profileIds) {
+        if (profileIds == null || profileIds.isEmpty()) {
+            return java.util.Map.of();
+        }
+        return achievementRepository.findAchievementsForProfiles(profileIds).stream()
+                .collect(Collectors.groupingBy(
+                        a -> a.getStudentProfile().getId(),
+                        Collectors.mapping(this::mapToResponse, Collectors.toList())
+                ));
+    }
+
     @Transactional
     public AchievementResponse addAchievement(UUID userId, AchievementRequest request) {
         StudentProfile profile = profileRepository.findByUserId(userId)

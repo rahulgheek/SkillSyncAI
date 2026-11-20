@@ -15,7 +15,8 @@ import java.util.UUID;
 @Entity
 @Table(name = "notifications", schema = "notification", indexes = {
         // BUG FIX: Removed DESC. Standard b-trees handle reverse scans fine.
-        @Index(name = "idx_notification_user_created", columnList = "user_id, created_at")
+        @Index(name = "idx_notification_user_created", columnList = "user_id, created_at"),
+        @Index(name = "idx_notification_user_read", columnList = "user_id, is_read")
 })
 @Getter
 @Setter

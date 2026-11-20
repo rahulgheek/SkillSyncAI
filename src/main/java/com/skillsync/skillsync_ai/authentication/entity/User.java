@@ -19,7 +19,12 @@ import java.util.UUID;
 import java.security.Principal;
 
 @Entity
-@Table(name = "users", schema = "auth")
+@Table(
+        name = "users",
+        schema = "auth",
+        uniqueConstraints = @UniqueConstraint(name = "uk_users_email", columnNames = "email"),
+        indexes = @Index(name = "idx_users_college", columnList = "college_id")
+)
 @Getter
 @Setter
 @NoArgsConstructor

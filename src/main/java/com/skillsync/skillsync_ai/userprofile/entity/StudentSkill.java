@@ -14,7 +14,15 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "student_skills", schema = "profile")
+@Table(
+        name = "student_skills",
+        schema = "profile",
+        uniqueConstraints = @UniqueConstraint(name = "uk_student_skills_profile_skill", columnNames = {"student_profile_id", "skill_id"}),
+        indexes = {
+                @Index(name = "idx_student_skills_profile", columnList = "student_profile_id"),
+                @Index(name = "idx_student_skills_skill", columnList = "skill_id")
+        }
+)
 @Getter
 @Setter
 @NoArgsConstructor

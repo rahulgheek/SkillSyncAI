@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -169,8 +170,8 @@ public class ProjectManagementService {
                 
         StudentProfile ownerProfile = studentProfileRepository.findByUserId(project.getOwnerId())
                 .orElse(null);
-                
-        int activeMemberCount = teamMemberRepository.findAllByProjectIdAndStatus(projectId, MemberStatus.ACTIVE).size();
+
+        int activeMemberCount = (int) teamMemberRepository.countByProjectIdAndStatus(projectId, MemberStatus.ACTIVE);
 
         return mapToProjectDetailsResponse(project, ownerProfile, activeMemberCount);
     }
@@ -194,8 +195,26 @@ public class ProjectManagementService {
 
     @Transactional(readOnly = true)
     public List<TeamMemberResponse> getProjectMembers(UUID projectId) {
-        return teamMemberRepository.findAllByProjectIdAndStatus(projectId, MemberStatus.ACTIVE).stream()
-                .map(this::mapToMemberResponse).collect(Collectors.toList());
+        List<TeamMember> members = teamMemberRepository.findAllByProjectIdAndStatus(projectId, MemberStatus.ACTIVE);
+        if (members.isEmpty()) {
+            return List.of();
+        }
+
+        List<UUID> userIds = members.stream().map(TeamMember::getUserId).distinct().toList();
+        Map<UUID, StudentProfile> profiles = studentProfileRepository.findAllByUserIdIn(userIds).stream()
+                .collect(Collectors.toMap(StudentProfile::getUserId, p -> p));
+
+        Map<UUID, List<String>> skillsByProfile = profiles.isEmpty() ? Map.of()
+                : studentSkillRepository.findAllByStudentProfileIdIn(
+                        profiles.values().stream().map(StudentProfile::getId).toList()).stream()
+                .collect(Collectors.groupingBy(
+                        ss -> ss.getStudentProfile().getId(),
+                        Collectors.mapping(ss -> ss.getSkill().getName(), Collectors.toList())
+                ));
+
+        return members.stream()
+                .map(m -> mapToMemberResponse(m, profiles.get(m.getUserId()), skillsByProfile))
+                .collect(Collectors.toList());
     }
 
     // --- PHASE 3: TEAM LIFECYCLE ---
@@ -210,7 +229,7 @@ public class ProjectManagementService {
     @Transactional
     public void removeMember(UUID ownerId, UUID projectId, UUID memberUserId) {
         // Only the owner can remove someone
-        getProjectByIdAndOwner(projectId, ownerId);
+        Project project = getProjectByIdAndOwner(projectId, ownerId);
 
         TeamMember member = teamMemberRepository.findByProjectIdAndUserIdAndStatus(projectId, memberUserId, MemberStatus.ACTIVE)
                 .orElseThrow(() -> new RuntimeException("Active team member not found."));
@@ -223,9 +242,8 @@ public class ProjectManagementService {
         member.setLeftAt(Instant.now());
         decrementRoleCount(member);
         teamMemberRepository.save(member);
-        
-        Project project = projectRepository.findById(projectId).orElseThrow();
-        long activeMembers = teamMemberRepository.findAllByProjectIdAndStatus(projectId, MemberStatus.ACTIVE).size();
+
+        long activeMembers = teamMemberRepository.countByProjectIdAndStatus(projectId, MemberStatus.ACTIVE);
         if (project.getStatus() == ProjectStatus.IN_PROGRESS && activeMembers < project.getMaxTeamSize()) {
             project.setStatus(ProjectStatus.RECRUITING);
             projectRepository.save(project);
@@ -246,8 +264,8 @@ public class ProjectManagementService {
         member.setLeftAt(Instant.now());
         decrementRoleCount(member);
         teamMemberRepository.save(member);
-        
-        long activeMembers = teamMemberRepository.findAllByProjectIdAndStatus(projectId, MemberStatus.ACTIVE).size();
+
+        long activeMembers = teamMemberRepository.countByProjectIdAndStatus(projectId, MemberStatus.ACTIVE);
         if (project.getStatus() == ProjectStatus.IN_PROGRESS && activeMembers < project.getMaxTeamSize()) {
             project.setStatus(ProjectStatus.RECRUITING);
             projectRepository.save(project);
@@ -270,7 +288,7 @@ public class ProjectManagementService {
                 .orElseThrow(() -> new IllegalStateException("Project not found for accepted member."));
 
         // FIX 3: Overall Team Size Validation
-        long activeMembers = teamMemberRepository.findAllByProjectIdAndStatus(event.projectId(), MemberStatus.ACTIVE).size();
+        long activeMembers = teamMemberRepository.countByProjectIdAndStatus(event.projectId(), MemberStatus.ACTIVE);
         if (activeMembers >= project.getMaxTeamSize()) {
             log.error("Project {} has reached max capacity ({}). Cannot add user {}.", event.projectId(), project.getMaxTeamSize(), event.userId());
             return;
@@ -299,7 +317,7 @@ public class ProjectManagementService {
         }
         
         // FIX 4: Check if project is now full and update status to hide from discover feed
-        long newActiveMembersCount = teamMemberRepository.findAllByProjectIdAndStatus(event.projectId(), MemberStatus.ACTIVE).size();
+        long newActiveMembersCount = teamMemberRepository.countByProjectIdAndStatus(event.projectId(), MemberStatus.ACTIVE);
         if (newActiveMembersCount >= project.getMaxTeamSize() && project.getStatus() == ProjectStatus.RECRUITING) {
             project.setStatus(ProjectStatus.IN_PROGRESS);
             projectRepository.save(project);
@@ -353,16 +371,25 @@ public class ProjectManagementService {
 
     private TeamMemberResponse mapToMemberResponse(TeamMember m) {
         StudentProfile profile = studentProfileRepository.findByUserId(m.getUserId()).orElse(null);
-        List<String> topSkills = java.util.Collections.emptyList();
-        
-        if (profile != null) {
-            topSkills = studentSkillRepository.findAllByStudentProfileId(profile.getId())
-                    .stream()
-                    .map(skill -> skill.getSkill().getName())
-                    .limit(3)
-                    .collect(Collectors.toList());
-        }
-        
+        List<String> topSkills = profile == null ? java.util.Collections.emptyList()
+                : studentSkillRepository.findAllByStudentProfileId(profile.getId()).stream()
+                .map(skill -> skill.getSkill().getName())
+                .limit(3)
+                .collect(Collectors.toList());
+
+        return mapToMemberResponse(m, profile, topSkills);
+    }
+
+    private TeamMemberResponse mapToMemberResponse(
+            TeamMember m,
+            StudentProfile profile,
+            Map<UUID, List<String>> skillsByProfile) {
+        List<String> topSkills = profile == null ? java.util.Collections.emptyList()
+                : skillsByProfile.getOrDefault(profile.getId(), List.of()).stream().limit(3).toList();
+        return mapToMemberResponse(m, profile, topSkills);
+    }
+
+    private TeamMemberResponse mapToMemberResponse(TeamMember m, StudentProfile profile, List<String> topSkills) {
         return new TeamMemberResponse(m.getId(), m.getUserId(),
                 m.getProjectRole() != null ? m.getProjectRole().getId() : null,
                 m.getProjectRole() != null ? m.getProjectRole().getTitle() : null,

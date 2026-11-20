@@ -58,7 +58,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 }
             } else {
                 // First time login via Google -> Create account
-                College college = collegeRepository.findAll().stream().findFirst()
+                College college = collegeRepository.findFirstByIsActiveTrueOrderByCreatedAtAsc()
                         .orElseThrow(() -> new RuntimeException("System configuration error: No college seeded."));
 
                 localUser = User.builder()

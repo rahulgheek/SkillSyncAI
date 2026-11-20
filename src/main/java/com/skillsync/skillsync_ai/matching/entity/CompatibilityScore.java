@@ -13,7 +13,15 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "compatibility_scores", schema = "matching")
+@Table(
+        name = "compatibility_scores",
+        schema = "matching",
+        uniqueConstraints = @UniqueConstraint(name = "uk_compatibility_project_student", columnNames = {"project_id", "student_user_id"}),
+        indexes = {
+                @Index(name = "idx_compatibility_project", columnList = "project_id"),
+                @Index(name = "idx_compatibility_student", columnList = "student_user_id")
+        }
+)
 @Getter
 @Setter
 @NoArgsConstructor

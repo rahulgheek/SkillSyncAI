@@ -18,7 +18,11 @@ import org.hibernate.type.SqlTypes;
 import com.skillsync.skillsync_ai.todo.dto.SubtaskDto;
 
 @Entity
-@Table(name = "checkpoints", schema = "ai")
+@Table(
+        name = "checkpoints",
+        schema = "ai",
+        indexes = @Index(name = "idx_checkpoints_roadmap_order", columnList = "roadmap_id, order_index")
+)
 @Getter
 @Setter
 @NoArgsConstructor

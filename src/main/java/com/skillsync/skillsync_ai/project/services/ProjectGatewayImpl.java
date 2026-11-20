@@ -48,28 +48,14 @@ public class ProjectGatewayImpl implements ProjectGateway {
     @Override
     @Transactional(readOnly = true)
     public java.util.List<ProjectChatContext> getUserActiveProjects(UUID userId) {
-        java.util.List<ProjectChatContext> contexts = new java.util.ArrayList<>();
-        
-        // 1. Projects the user owns
-        projectRepository.findAllByOwnerId(userId, org.springframework.data.domain.Pageable.unpaged())
-            .forEach(p -> contexts.add(new ProjectChatContext(
-                p.getId(), p.getTitle(), java.time.LocalDateTime.ofInstant(p.getCreatedAt(), java.time.ZoneId.systemDefault())
-            )));
-            
-        // 2. Projects the user is a member of
-        teamMemberRepository.findAllByUserIdAndStatus(userId, MemberStatus.ACTIVE)
-            .forEach(tm -> {
-                projectRepository.findById(tm.getProject().getId()).ifPresent(p -> {
-                    // Avoid duplicates if owner is also a member somehow
-                    if (!p.getOwnerId().equals(userId)) {
-                        contexts.add(new ProjectChatContext(
-                            p.getId(), p.getTitle(), java.time.LocalDateTime.ofInstant(p.getCreatedAt(), java.time.ZoneId.systemDefault())
-                        ));
-                    }
-                });
-            });
-            
-        return contexts;
+        // Owned projects and active memberships in one query instead of 1 + N.
+        return projectRepository.findChatProjectsForUser(userId, MemberStatus.ACTIVE).stream()
+                .map(p -> new ProjectChatContext(
+                        p.getId(),
+                        p.getTitle(),
+                        java.time.LocalDateTime.ofInstant(p.getCreatedAt(), java.time.ZoneId.systemDefault())
+                ))
+                .toList();
     }
 
     @Override
@@ -78,5 +64,16 @@ public class ProjectGatewayImpl implements ProjectGateway {
         return projectRepository.findById(projectId)
                 .map(p -> new ProjectDiscoveryContext(p.getId(), p.getTitle(), p.getDescription()))
                 .orElseThrow(() -> new IllegalArgumentException("Project not found for discovery context"));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.List<ProjectDiscoveryContext> getProjectDiscoveryContexts(java.util.Collection<UUID> projectIds) {
+        if (projectIds == null || projectIds.isEmpty()) {
+            return java.util.List.of();
+        }
+        return projectRepository.findAllById(projectIds).stream()
+                .map(p -> new ProjectDiscoveryContext(p.getId(), p.getTitle(), p.getDescription()))
+                .toList();
     }
 }

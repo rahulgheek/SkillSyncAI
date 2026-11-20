@@ -18,7 +18,11 @@ import java.util.Map;
 import java.util.UUID;
 
 @Entity
-@Table(name = "skill_analysis_results", schema = "ai")
+@Table(
+        name = "skill_analysis_results",
+        schema = "ai",
+        indexes = @Index(name = "idx_skill_analysis_user_created", columnList = "user_id, created_at")
+)
 @Getter
 @Setter
 @NoArgsConstructor

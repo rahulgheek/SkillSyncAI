@@ -18,8 +18,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -55,12 +58,16 @@ public class DirectMessageService {
 
     @Transactional(readOnly = true)
     public Page<DirectMessageDto> getDirectChatHistory(UUID currentUserId, UUID otherUserId, Pageable pageable) {
-        var currentUserProfile = userProfileGateway.getUserProfile(currentUserId).orElse(null);
-        var otherUserProfile = userProfileGateway.getUserProfile(otherUserId).orElse(null);
+        Map<UUID, com.skillsync.skillsync_ai.userprofile.UserProfileGateway.UserProfileContext> profiles =
+                userProfileGateway.getUserProfiles(List.of(currentUserId, otherUserId)).stream()
+                        .collect(Collectors.toMap(
+                                com.skillsync.skillsync_ai.userprofile.UserProfileGateway.UserProfileContext::userId,
+                                p -> p
+                        ));
 
         return directMessageRepository.findConversationHistory(currentUserId, otherUserId, pageable)
                 .map(msg -> {
-                    var profile = msg.getSenderId().equals(currentUserId) ? currentUserProfile : otherUserProfile;
+                    var profile = profiles.get(msg.getSenderId());
                     String name = profile != null ? profile.fullName() : "Unknown User";
                     String avatar = profile != null ? profile.profilePictureUrl() : null;
                     return new DirectMessageDto(
@@ -78,65 +85,89 @@ public class DirectMessageService {
 
     @Transactional
     public void markMessagesAsRead(UUID currentUserId, UUID senderId) {
-        // A simple query to update would be better, but doing it via JPA for simplicity
-        List<DirectMessage> unread = directMessageRepository.countUnreadMessagesForUser(currentUserId);
-        for (DirectMessage dm : unread) {
-            if (dm.getSenderId().equals(senderId)) {
-                dm.setRead(true);
-            }
-        }
-        directMessageRepository.saveAll(unread);
+        directMessageRepository.markConversationAsRead(currentUserId, senderId);
     }
 
     @Transactional(readOnly = true)
     public List<ChatInboxItemDto> getUserInbox(UUID userId) {
         List<ChatInboxItemDto> inbox = new ArrayList<>();
 
-        // 1. Get Projects the user is part of
+        // 1. Projects: one query for the projects, one for the latest message
+        // of every project (instead of one query per project).
         List<ProjectGateway.ProjectChatContext> activeProjects = projectGateway.getUserActiveProjects(userId);
-        for (ProjectGateway.ProjectChatContext projectCtx : activeProjects) {
-            // Get last message
-            var lastMsgs = projectMessageRepository.findAllByProjectIdOrderByCreatedAtDesc(projectCtx.projectId(), Pageable.ofSize(1));
-            String lastMsg = lastMsgs.isEmpty() ? "" : lastMsgs.getContent().get(0).getContent();
-            LocalDateTime lastMsgAt = lastMsgs.isEmpty() ? projectCtx.createdAt() : java.time.LocalDateTime.ofInstant(lastMsgs.getContent().get(0).getCreatedAt(), java.time.ZoneId.systemDefault());
-            
-            inbox.add(new ChatInboxItemDto(
-                    projectCtx.projectId().toString(),
-                    "PROJECT",
-                    projectCtx.title(),
-                    null, // Project avatar if any
-                    lastMsg,
-                    lastMsgAt,
-                    0 // Unread logic for projects can be complex, skip for now
-            ));
+        if (!activeProjects.isEmpty()) {
+            List<UUID> projectIds = activeProjects.stream()
+                    .map(ProjectGateway.ProjectChatContext::projectId)
+                    .toList();
+            Map<UUID, com.skillsync.skillsync_ai.messaging.entity.ProjectMessage> latestByProject =
+                    projectMessageRepository.findLatestByProjectIds(projectIds).stream()
+                            .collect(Collectors.toMap(
+                                    com.skillsync.skillsync_ai.messaging.entity.ProjectMessage::getProjectId,
+                                    m -> m
+                            ));
+
+            for (ProjectGateway.ProjectChatContext projectCtx : activeProjects) {
+                var latest = latestByProject.get(projectCtx.projectId());
+                String lastMsg = latest == null ? "" : latest.getContent();
+                LocalDateTime lastMsgAt = latest == null ? projectCtx.createdAt()
+                        : java.time.LocalDateTime.ofInstant(latest.getCreatedAt(), java.time.ZoneId.systemDefault());
+
+                inbox.add(new ChatInboxItemDto(
+                        projectCtx.projectId().toString(),
+                        "PROJECT",
+                        projectCtx.title(),
+                        null,
+                        lastMsg,
+                        lastMsgAt,
+                        0
+                ));
+            }
         }
 
-        // Fetch all unread messages for this user ONCE to avoid N+1 inside the loop
-        List<DirectMessage> allUnread = directMessageRepository.countUnreadMessagesForUser(userId);
+        // 2. Direct messages: one query for the recent messages, one for all
+        // profiles, one for unread counts. No per-conversation lookups.
+        List<DirectMessage> recentMessages = directMessageRepository
+                .findRecentMessagesForUser(userId, org.springframework.data.domain.PageRequest.of(0, 500));
 
-        // 2. Get Users the user has DM'd
-        List<UUID> dmUserIds = directMessageRepository.findRecentInterlocutors(userId);
-        for (UUID otherId : dmUserIds) {
-            userProfileGateway.getUserProfile(otherId).ifPresent(otherUser -> {
-                var lastMsgs = directMessageRepository.findConversationHistory(userId, otherId, Pageable.ofSize(1));
-                String lastMsg = lastMsgs.isEmpty() ? "" : lastMsgs.getContent().get(0).getContent();
-                LocalDateTime lastMsgAt = lastMsgs.isEmpty() ? LocalDateTime.MIN : lastMsgs.getContent().get(0).getCreatedAt();
-                
-                // Count unread from this user in-memory
-                long unreadCount = allUnread.stream()
-                        .filter(m -> m.getSenderId().equals(otherId))
-                        .count();
+        Map<UUID, DirectMessage> latestByInterlocutor = new LinkedHashMap<>();
+        for (DirectMessage message : recentMessages) {
+            UUID otherId = message.getSenderId().equals(userId) ? message.getRecipientId() : message.getSenderId();
+            latestByInterlocutor.putIfAbsent(otherId, message);
+        }
 
+        if (!latestByInterlocutor.isEmpty()) {
+            List<UUID> otherIds = new ArrayList<>(latestByInterlocutor.keySet());
+
+            Map<UUID, com.skillsync.skillsync_ai.userprofile.UserProfileGateway.UserProfileContext> profiles =
+                    userProfileGateway.getUserProfiles(otherIds).stream()
+                            .collect(Collectors.toMap(
+                                    com.skillsync.skillsync_ai.userprofile.UserProfileGateway.UserProfileContext::userId,
+                                    p -> p
+                            ));
+
+            Map<UUID, Long> unreadBySender = directMessageRepository.countUnreadBySender(userId).stream()
+                    .collect(Collectors.toMap(
+                            com.skillsync.skillsync_ai.messaging.repo.DirectMessageRepository.UnreadCountProjection::getSenderId,
+                            com.skillsync.skillsync_ai.messaging.repo.DirectMessageRepository.UnreadCountProjection::getUnreadCount
+                    ));
+
+            for (Map.Entry<UUID, DirectMessage> entry : latestByInterlocutor.entrySet()) {
+                UUID otherId = entry.getKey();
+                var otherUser = profiles.get(otherId);
+                if (otherUser == null) {
+                    continue;
+                }
+                DirectMessage lastMessage = entry.getValue();
                 inbox.add(new ChatInboxItemDto(
                         otherId.toString(),
                         "DIRECT",
                         otherUser.fullName(),
                         otherUser.profilePictureUrl(),
-                        lastMsg,
-                        lastMsgAt,
-                        (int) unreadCount
+                        lastMessage.getContent(),
+                        lastMessage.getCreatedAt(),
+                        unreadBySender.getOrDefault(otherId, 0L).intValue()
                 ));
-            });
+            }
         }
 
         // Sort by most recent

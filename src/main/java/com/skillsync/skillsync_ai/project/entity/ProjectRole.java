@@ -17,7 +17,11 @@ import java.util.List;
 import java.util.UUID;
 
 @Entity
-@Table(name = "project_roles", schema = "project")
+@Table(
+        name = "project_roles",
+        schema = "project",
+        indexes = @Index(name = "idx_project_roles_project", columnList = "project_id")
+)
 @Getter
 @Setter
 @NoArgsConstructor

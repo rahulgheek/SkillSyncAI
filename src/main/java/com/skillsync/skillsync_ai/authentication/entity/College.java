@@ -12,7 +12,11 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "colleges", schema = "auth")
+@Table(
+        name = "colleges",
+        schema = "auth",
+        uniqueConstraints = @UniqueConstraint(name = "uk_colleges_email_domain", columnNames = "email_domain")
+)
 @Getter
 @Setter
 @NoArgsConstructor

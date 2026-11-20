@@ -13,7 +13,15 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "invitations", schema = "matching")
+@Table(
+        name = "invitations",
+        schema = "matching",
+        indexes = {
+                @Index(name = "idx_invitations_invited_status", columnList = "invited_user_id, status"),
+                @Index(name = "idx_invitations_project", columnList = "project_id"),
+                @Index(name = "idx_invitations_project_invited", columnList = "project_id, invited_user_id")
+        }
+)
 @Getter
 @Setter
 @NoArgsConstructor

@@ -19,7 +19,11 @@ import java.util.UUID;
         name = "project_recommendations",
         schema = "matching",
         uniqueConstraints = {
-                @UniqueConstraint(columnNames = {"project_id", "user_id"}) // Fix 10: Uniqueness
+                @UniqueConstraint(name = "uk_recommendations_project_user", columnNames = {"project_id", "user_id"}) // Fix 10: Uniqueness
+        },
+        indexes = {
+                @Index(name = "idx_recommendations_project_score", columnList = "project_id, final_score"),
+                @Index(name = "idx_recommendations_user_score", columnList = "user_id, final_score")
         }
 )
 @Getter
@@ -85,5 +89,6 @@ public class ProjectRecommendation {
 
     @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
     @Column(name = "matched_skills", columnDefinition = "jsonb")
+    @Builder.Default
     private java.util.List<String> matchedSkills = new java.util.ArrayList<>();
 }

@@ -12,7 +12,11 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "student_achievements", schema = "profile")
+@Table(
+        name = "student_achievements",
+        schema = "profile",
+        indexes = @Index(name = "idx_student_achievements_profile_date", columnList = "student_profile_id, date")
+)
 @Getter
 @Setter
 @NoArgsConstructor

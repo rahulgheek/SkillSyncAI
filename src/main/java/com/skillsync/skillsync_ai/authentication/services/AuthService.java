@@ -57,7 +57,7 @@ public class AuthService {
         // call is made while this transaction is open.
         transactionTemplate.executeWithoutResult(status -> {
             // Fetch the seeded college for this deployment or auto-create a default one if the DB is completely empty
-            College college = collegeRepository.findAll().stream().findFirst()
+            College college = collegeRepository.findFirstByIsActiveTrueOrderByCreatedAtAsc()
                     .orElseGet(() -> {
                         College newCollege = College.builder()
                                 .name("SkillSync University")
@@ -166,13 +166,14 @@ public class AuthService {
     }
 
     public AuthResponse loginUser(LoginRequest request) {
-        // This will throw BadCredentialsException if password doesn't match
-        authenticationProvider.authenticate(
+        // This will throw BadCredentialsException if password doesn't match.
+        // Reuse the principal from authentication instead of querying the user a
+        // second time; on a high-latency DB every round-trip counts.
+        org.springframework.security.core.Authentication authentication = authenticationProvider.authenticate(
                 new UsernamePasswordAuthenticationToken(request.email(), request.password())
         );
 
-        User user = userRepository.findByEmail(request.email())
-                .orElseThrow(() -> new IllegalArgumentException("User not found."));
+        User user = (User) authentication.getPrincipal();
 
         if (!user.isEmailVerified()) {
             throw new IllegalStateException("College email is not verified. Please verify first.");

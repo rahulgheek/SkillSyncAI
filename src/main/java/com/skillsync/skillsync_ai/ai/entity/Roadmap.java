@@ -13,7 +13,11 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "roadmaps", schema = "ai")
+@Table(
+        name = "roadmaps",
+        schema = "ai",
+        indexes = @Index(name = "idx_roadmaps_user_status", columnList = "user_id, status")
+)
 @Getter
 @Setter
 @NoArgsConstructor

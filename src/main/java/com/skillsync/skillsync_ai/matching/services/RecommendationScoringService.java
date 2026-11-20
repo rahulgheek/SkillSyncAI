@@ -99,18 +99,27 @@ public class RecommendationScoringService {
 
     @Transactional(readOnly = true)
     public org.springframework.data.domain.Page<com.skillsync.skillsync_ai.matching.dto.ProjectRecommendationResponse> getTopCandidatesForProject(java.util.UUID projectId, org.springframework.data.domain.Pageable pageable) {
-        return recommendationRepository.findAllByProjectIdOrderByFinalScoreDesc(projectId, pageable)
-                .map(r -> {
-                    var profile = userProfileGateway.getUserProfile(r.getUserId()).orElse(null);
-                    return new com.skillsync.skillsync_ai.matching.dto.ProjectRecommendationResponse(
-                            r.getId(), r.getProjectId(), r.getUserId(),
-                            profile != null ? profile.fullName() : "Unknown Candidate",
-                            profile != null ? profile.profilePictureUrl() : null,
-                            r.getSemanticScore(), r.getFinalScore(),
-                            r.getConfidence() != null ? r.getConfidence().name() : null,
-                            r.getMatchedSkills(), r.getRationale(), r.getStatus().name(), r.getExpiresAt()
-                    );
-                });
+        var page = recommendationRepository.findAllByProjectIdOrderByFinalScoreDesc(projectId, pageable);
+
+        var profiles = userProfileGateway.getUserProfiles(
+                        page.getContent().stream().map(ProjectRecommendation::getUserId).toList())
+                .stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        com.skillsync.skillsync_ai.userprofile.UserProfileGateway.UserProfileContext::userId,
+                        p -> p
+                ));
+
+        return page.map(r -> {
+            var profile = profiles.get(r.getUserId());
+            return new com.skillsync.skillsync_ai.matching.dto.ProjectRecommendationResponse(
+                    r.getId(), r.getProjectId(), r.getUserId(),
+                    profile != null ? profile.fullName() : "Unknown Candidate",
+                    profile != null ? profile.profilePictureUrl() : null,
+                    r.getSemanticScore(), r.getFinalScore(),
+                    r.getConfidence() != null ? r.getConfidence().name() : null,
+                    r.getMatchedSkills(), r.getRationale(), r.getStatus().name(), r.getExpiresAt()
+            );
+        });
     }
 
     @EventListener
@@ -157,17 +166,27 @@ public class RecommendationScoringService {
 
     @Transactional(readOnly = true)
     public org.springframework.data.domain.Page<com.skillsync.skillsync_ai.matching.dto.StudentProjectRecommendationResponse> getRecommendedProjectsForStudent(java.util.UUID studentId, org.springframework.data.domain.Pageable pageable) {
-        return recommendationRepository.findAllByUserIdOrderByFinalScoreDesc(studentId, pageable)
-                .map(r -> {
-                    var projectContext = projectGateway.getProjectDiscoveryContext(r.getProjectId());
-                    return new com.skillsync.skillsync_ai.matching.dto.StudentProjectRecommendationResponse(
-                            r.getId(), r.getProjectId(), 
-                            projectContext.title(), projectContext.description(), 
-                            r.getUserId(),
-                            r.getSemanticScore(), r.getFinalScore(),
-                            r.getConfidence() != null ? r.getConfidence().name() : null,
-                            r.getMatchedSkills(), r.getRationale(), r.getStatus().name(), r.getExpiresAt()
-                    );
-                });
+        var page = recommendationRepository.findAllByUserIdOrderByFinalScoreDesc(studentId, pageable);
+
+        var projects = projectGateway.getProjectDiscoveryContexts(
+                        page.getContent().stream().map(ProjectRecommendation::getProjectId).toList())
+                .stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        com.skillsync.skillsync_ai.project.ProjectGateway.ProjectDiscoveryContext::projectId,
+                        p -> p
+                ));
+
+        return page.map(r -> {
+            var projectContext = projects.get(r.getProjectId());
+            return new com.skillsync.skillsync_ai.matching.dto.StudentProjectRecommendationResponse(
+                    r.getId(), r.getProjectId(),
+                    projectContext != null ? projectContext.title() : "Unknown Project",
+                    projectContext != null ? projectContext.description() : null,
+                    r.getUserId(),
+                    r.getSemanticScore(), r.getFinalScore(),
+                    r.getConfidence() != null ? r.getConfidence().name() : null,
+                    r.getMatchedSkills(), r.getRationale(), r.getStatus().name(), r.getExpiresAt()
+            );
+        });
     }
 }

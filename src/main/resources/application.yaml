@@ -32,6 +32,15 @@ spring:
       keepalive-time: 0
       connection-timeout: 30000
       validation-timeout: 5000
+      data-source-properties:
+        # Neon is far away (hundreds of ms per round-trip). Rewriting inserts
+        # into multi-row VALUES statements keeps batch writes fast.
+        reWriteBatchedInserts: true
+  sql:
+    init:
+      # schema.sql enables PostgreSQL extensions that entity mappings rely on.
+      # It runs before Hibernate creates or validates the schema.
+      mode: always
   jpa:
     hibernate:
       ddl-auto: validate
@@ -41,6 +50,17 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         hbm2ddl:
           create_namespaces: true
+        # Batch lazy collection/entity initialisation instead of issuing one
+        # query per row. This is the single biggest win on a high-latency DB.
+        default_batch_fetch_size: 50
+        jdbc:
+          batch_size: 30
+          time_zone: UTC
+        order_inserts: true
+        order_updates: true
+        batch_versioned_data: true
+        query:
+          in_clause_parameter_padding: true
   mail:
     host: ${MAIL_HOST:smtp-relay.brevo.com}
     port: ${MAIL_PORT:2525}

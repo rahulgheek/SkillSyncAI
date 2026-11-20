@@ -31,15 +31,25 @@ public class TodoGatewayImpl implements TodoGateway {
 
     @Override
     @Transactional(readOnly = true)
-    public TodoMetrics getTodoMetrics(UUID userId) { // CHANGED: Now matches the interface!
-        long total = todoRepository.countByUserId(userId);
-        long completed = todoRepository.countByUserIdAndStatus(userId, TodoStatus.COMPLETED);
-        long pending = todoRepository.countByUserIdAndStatus(userId, TodoStatus.PENDING);
-        long inProgress = todoRepository.countByUserIdAndStatus(userId, TodoStatus.IN_PROGRESS);
+    public TodoMetrics getTodoMetrics(UUID userId) {
+        // One grouped query instead of four COUNT round-trips.
+        long pending = 0;
+        long inProgress = 0;
+        long completed = 0;
+        long total = 0;
+
+        for (var row : todoRepository.countByStatusForUser(userId)) {
+            long count = row.getCount();
+            total += count;
+            switch (row.getStatus()) {
+                case PENDING -> pending = count;
+                case IN_PROGRESS -> inProgress = count;
+                case COMPLETED -> completed = count;
+                default -> { }
+            }
+        }
 
         int completionPercentage = total == 0 ? 0 : Math.round((completed * 100f) / total);
-
-        // CHANGED: Returning the new TodoMetrics record!
         return new TodoMetrics(total, pending, inProgress, completed, completionPercentage);
     }
 }

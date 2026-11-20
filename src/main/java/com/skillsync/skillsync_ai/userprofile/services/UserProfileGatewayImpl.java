@@ -33,6 +33,21 @@ public class UserProfileGatewayImpl implements UserProfileGateway {
 
     @Override
     @Transactional(readOnly = true)
+    public java.util.List<UserProfileContext> getUserProfiles(java.util.Collection<UUID> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return java.util.List.of();
+        }
+        return studentProfileRepository.findAllByUserIdIn(userIds).stream()
+                .map(profile -> new UserProfileContext(
+                        profile.getUserId(),
+                        profile.getFullName(),
+                        profile.getProfilePictureUrl()
+                ))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Optional<UserProfileWorkContext> getUserWorkContext(UUID userId) {
         return studentProfileRepository.findByUserId(userId).map(profile -> {
             java.util.List<String> skills = studentSkillRepository.findAllByStudentProfileId(profile.getId())

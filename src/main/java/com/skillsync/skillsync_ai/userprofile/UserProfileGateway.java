@@ -9,6 +9,8 @@ public interface UserProfileGateway {
 
     Optional<UserProfileContext> getUserProfile(UUID userId);
 
+    java.util.List<UserProfileContext> getUserProfiles(java.util.Collection<UUID> userIds);
+
     record UserProfileWorkContext(UUID profileId, java.util.List<String> skills, java.util.List<String> projects) {}
     
     Optional<UserProfileWorkContext> getUserWorkContext(UUID userId);

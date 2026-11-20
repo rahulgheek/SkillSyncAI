@@ -13,7 +13,11 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 @Entity
-@Table(name = "previous_projects", schema = "profile")
+@Table(
+        name = "previous_projects",
+        schema = "profile",
+        indexes = @Index(name = "idx_previous_projects_profile", columnList = "student_profile_id")
+)
 @Getter
 @Setter
 @NoArgsConstructor

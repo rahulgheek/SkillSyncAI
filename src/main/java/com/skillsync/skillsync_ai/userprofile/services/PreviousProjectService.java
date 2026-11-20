@@ -65,6 +65,18 @@ public class PreviousProjectService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
+    public java.util.Map<UUID, List<PreviousProjectResponse>> getProjectsForUsers(java.util.Collection<UUID> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return java.util.Map.of();
+        }
+        return projectRepository.findAllByUserIdInWithTechStack(userIds).stream()
+                .collect(Collectors.groupingBy(
+                        p -> p.getStudentProfile().getUserId(),
+                        Collectors.mapping(this::mapToResponse, Collectors.toList())
+                ));
+    }
+
     private PreviousProjectResponse mapToResponse(PreviousProject project) {
         return new PreviousProjectResponse(
                 project.getId(), project.getTitle(), project.getDescription(),

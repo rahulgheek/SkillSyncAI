@@ -15,4 +15,6 @@ public interface ProjectGateway {
     
     record ProjectDiscoveryContext(UUID projectId, String title, String description) {}
     ProjectDiscoveryContext getProjectDiscoveryContext(UUID projectId);
+
+    java.util.List<ProjectDiscoveryContext> getProjectDiscoveryContexts(java.util.Collection<UUID> projectIds);
 }
