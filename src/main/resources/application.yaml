@@ -42,6 +42,12 @@ spring:
       # It runs before Hibernate creates or validates the schema.
       mode: always
   jpa:
+    # This is a JSON API with no server-side view rendering. Transactions are
+    # owned by services, so a lazy association must never be initialised while
+    # the response is being serialised. Keeping OSIV off also prevents an
+    # EntityManager (and a pooled connection) from being held for the whole
+    # request, which matters on a high-latency remote database.
+    open-in-view: false
     hibernate:
       # `update` lets Hibernate create the new matching job table and indexes.
       # For a production deployment with multiple instances, replace this with
@@ -50,7 +56,6 @@ spring:
     show-sql: false
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
         hbm2ddl:
           create_namespaces: true
         # Batch lazy collection/entity initialisation instead of issuing one

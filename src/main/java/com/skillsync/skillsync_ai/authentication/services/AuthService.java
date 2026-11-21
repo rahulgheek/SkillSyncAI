@@ -10,7 +10,7 @@ import com.skillsync.skillsync_ai.authentication.repo.CollegeRepository;
 import com.skillsync.skillsync_ai.authentication.repo.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.authentication.AuthenticationProvider;
+import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -29,7 +29,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final OtpService otpService;
     private final JwtService jwtService;
-    private final AuthenticationProvider authenticationProvider;
+    private final AuthenticationManager authenticationManager;
     private final MailService mailService;
     private final TransactionTemplate transactionTemplate;
 
@@ -169,7 +169,7 @@ public class AuthService {
         // This will throw BadCredentialsException if password doesn't match.
         // Reuse the principal from authentication instead of querying the user a
         // second time; on a high-latency DB every round-trip counts.
-        org.springframework.security.core.Authentication authentication = authenticationProvider.authenticate(
+        org.springframework.security.core.Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.email(), request.password())
         );
 

@@ -47,6 +47,7 @@ public class Roadmap {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "skill_gap_analysis_id")
+    @com.fasterxml.jackson.annotation.JsonIgnore
     private SkillGapAnalysis skillGapAnalysis;
 
     @Column(nullable = false)

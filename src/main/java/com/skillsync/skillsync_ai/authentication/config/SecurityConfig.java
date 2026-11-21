@@ -6,7 +6,6 @@ import com.skillsync.skillsync_ai.authentication.services.CustomOAuth2UserServic
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -26,7 +25,6 @@ public class SecurityConfig {
 
     private final RateLimitFilter rateLimitFilter;
     private final JwtAuthenticationFilter jwtAuthFilter;
-    private final AuthenticationProvider authenticationProvider;
     private final CustomOAuth2UserService customOAuth2UserService;
     private final OAuth2AuthenticationSuccessHandler oAuth2SuccessHandler;
 
@@ -48,7 +46,6 @@ public class SecurityConfig {
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint(new org.springframework.security.web.authentication.HttpStatusEntryPoint(org.springframework.http.HttpStatus.UNAUTHORIZED))
                 )
-                .authenticationProvider(authenticationProvider)
                 // 1. First block spam IPs
                 .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)
                 // 2. Then check for valid authentication tokens
