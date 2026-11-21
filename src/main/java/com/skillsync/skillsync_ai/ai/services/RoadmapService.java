@@ -16,10 +16,13 @@ import com.skillsync.skillsync_ai.ai.repo.RoadmapRepository;
 import com.skillsync.skillsync_ai.ai.repo.RoadmapSessionRepository;
 import com.skillsync.skillsync_ai.ai.repo.SkillGapAnalysisRepository;
 import com.skillsync.skillsync_ai.chat.ChatGateway;
+import com.skillsync.skillsync_ai.common.dto.LearningResourceDto;
 import com.skillsync.skillsync_ai.common.enums.TaskPriority;
+import com.skillsync.skillsync_ai.common.events.LearningMaterialsGeneratedEvent;
 import com.skillsync.skillsync_ai.common.events.ProfileUpdatedEvent;
 import com.skillsync.skillsync_ai.common.events.RoadmapGeneratedEvent;
 import com.skillsync.skillsync_ai.common.events.TodoCompletedEvent;
+import com.skillsync.skillsync_ai.common.events.TodoReopenedEvent;
 import com.skillsync.skillsync_ai.common.exception.ResourceNotFoundException;
 import com.skillsync.skillsync_ai.common.exception.UnauthorizedActionException;
 import com.skillsync.skillsync_ai.todo.dto.SubtaskDto;
@@ -52,6 +55,7 @@ public class RoadmapService {
     private final RoadmapSessionRepository roadmapSessionRepository;
     private final SkillGapAnalysisRepository skillGapRepository;
     private final GeminiApiService geminiApiService;
+    private final LearningMaterialService learningMaterialService;
     private final ApplicationEventPublisher eventPublisher;
     private final TransactionTemplate transactionTemplate;
     private final UserProfileGateway userProfileGateway;
@@ -125,7 +129,7 @@ public class RoadmapService {
                         .orElseThrow(() -> new ResourceNotFoundException("Roadmap not found"));
 
                 List<RoadmapGeneratedEvent.CheckpointPayload> eventPayloads =
-                        saveCheckpoints(roadmap, steps, (short) 1);
+                        saveCheckpoints(roadmap, steps, (short) 1, roadmap.getTitle());
 
                 eventPublisher.publishEvent(new RoadmapGeneratedEvent(
                         userId,
@@ -260,7 +264,7 @@ public class RoadmapService {
 
                 Roadmap savedRoadmap = roadmapRepository.save(roadmap);
                 List<RoadmapGeneratedEvent.CheckpointPayload> eventPayloads =
-                        saveCheckpoints(savedRoadmap, steps, (short) 1);
+                        saveCheckpoints(savedRoadmap, steps, (short) 1, curriculumList.get(0));
 
                 // Transactional listener in TodoService creates the tasks.
                 eventPublisher.publishEvent(new RoadmapGeneratedEvent(
@@ -309,6 +313,66 @@ public class RoadmapService {
             eventPublisher.publishEvent(new ProfileUpdatedEvent(userId));
         }
         checkpointRepository.save(checkpoint);
+    }
+
+    /**
+     * Returns the stored learning materials for a checkpoint, or asks the AI to
+     * generate them when they are missing (for checkpoints created before the
+     * feature existed) or when {@code refresh} is true.
+     *
+     * <p>The AI call deliberately runs outside a database transaction so a
+     * slow Gemini response never holds a Neon connection.</p>
+     */
+    public List<LearningResourceDto> getLearningMaterials(UUID userId, UUID checkpointId, boolean refresh) {
+        LearningMaterialsContext context = transactionTemplate.execute(status -> {
+            Checkpoint checkpoint = checkpointRepository.findById(checkpointId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Checkpoint not found"));
+
+            if (!checkpoint.getRoadmap().getUserId().equals(userId)) {
+                throw new UnauthorizedActionException("You do not have access to this checkpoint");
+            }
+
+            boolean hasResources = checkpoint.getLearningResources() != null
+                    && !checkpoint.getLearningResources().isEmpty();
+            if (!refresh && hasResources) {
+                return new LearningMaterialsContext(
+                        checkpoint.getTitle(),
+                        checkpoint.getDescription(),
+                        checkpoint.getRoadmap().getCurrentTopic(),
+                        checkpoint.getRoadmap().getTitle(),
+                        checkpoint.getLearningResources());
+            }
+
+            return new LearningMaterialsContext(
+                    checkpoint.getTitle(),
+                    checkpoint.getDescription(),
+                    checkpoint.getRoadmap().getCurrentTopic(),
+                    checkpoint.getRoadmap().getTitle(),
+                    null);
+        });
+
+        if (context == null) {
+            throw new ResourceNotFoundException("Checkpoint not found");
+        }
+        if (context.resources() != null) {
+            return context.resources();
+        }
+
+        String topic = context.currentTopic() != null && !context.currentTopic().isBlank()
+                ? context.currentTopic()
+                : context.roadmapTitle();
+        List<LearningResourceDto> resources = learningMaterialService.generateForTask(
+                topic, context.title(), context.description(), context.roadmapTitle());
+
+        transactionTemplate.executeWithoutResult(status -> {
+            Checkpoint checkpoint = checkpointRepository.findById(checkpointId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Checkpoint not found"));
+            checkpoint.setLearningResources(resources);
+            checkpointRepository.save(checkpoint);
+            eventPublisher.publishEvent(new LearningMaterialsGeneratedEvent(checkpointId, resources));
+        });
+
+        return resources;
     }
 
     public String chatWithRoadmapAI(UUID userId, UUID roadmapId, String message) {
@@ -445,7 +509,7 @@ public class RoadmapService {
                 Roadmap roadmap = roadmapRepository.findById(state.roadmapId())
                         .orElseThrow(() -> new ResourceNotFoundException("Roadmap not found"));
                 List<RoadmapGeneratedEvent.CheckpointPayload> payloads =
-                        saveCheckpoints(roadmap, steps, (short) (state.checkpointCount() + 1));
+                        saveCheckpoints(roadmap, steps, (short) (state.checkpointCount() + 1), state.nextTopic());
 
                 // Transactional listener in TodoService creates the tasks.
                 eventPublisher.publishEvent(new RoadmapGeneratedEvent(
@@ -460,14 +524,58 @@ public class RoadmapService {
         }
     }
 
+    /**
+     * Keeps roadmap progress consistent when a completed task is reopened:
+     * the checkpoint goes back to PENDING and a completed roadmap/session
+     * becomes active again so the user can finish the work.
+     */
+    @Async
+    @TransactionalEventListener
+    public void onTodoReopened(TodoReopenedEvent event) {
+        if (event.relatedEntityId() == null) return;
+
+        transactionTemplate.executeWithoutResult(status -> {
+            Optional<Checkpoint> checkpointOpt = checkpointRepository.findById(event.relatedEntityId());
+            if (checkpointOpt.isEmpty()) return;
+
+            Checkpoint checkpoint = checkpointOpt.get();
+            if (checkpoint.getStatus() == CheckpointStatus.COMPLETED) {
+                checkpoint.setStatus(CheckpointStatus.PENDING);
+                checkpoint.setCompletedAt(null);
+                checkpointRepository.save(checkpoint);
+            }
+
+            Roadmap roadmap = checkpoint.getRoadmap();
+            if (roadmap.getStatus() == RoadmapStatus.COMPLETED) {
+                roadmap.setStatus(RoadmapStatus.ACTIVE);
+                roadmapRepository.save(roadmap);
+            }
+
+            UUID sessionId = roadmap.getSession() != null ? roadmap.getSession().getId() : null;
+            if (sessionId == null) return;
+
+            roadmapSessionRepository.findById(sessionId).ifPresent(session -> {
+                if (session.getStatus() == RoadmapSessionStatus.COMPLETED) {
+                    session.setStatus(RoadmapSessionStatus.ACTIVE);
+                    roadmapSessionRepository.save(session);
+                }
+            });
+        });
+    }
+
     private List<RoadmapGeneratedEvent.CheckpointPayload> saveCheckpoints(
-            Roadmap roadmap, List<Map<String, Object>> steps, short startOrder) {
+            Roadmap roadmap, List<Map<String, Object>> steps, short startOrder, String topic) {
         short order = startOrder;
         int daysOffset = 1;
         List<RoadmapGeneratedEvent.CheckpointPayload> eventPayloads = new ArrayList<>();
 
         for (Map<String, Object> step : steps) {
             List<SubtaskDto> subtasks = buildSubtasks(step);
+            List<LearningResourceDto> learningResources =
+                    learningMaterialService.fromAiStep(step, topic, roadmap.getTitle());
+            if (learningResources == null) {
+                learningResources = List.of();
+            }
 
             Checkpoint cp = checkpointRepository.save(Checkpoint.builder()
                     .roadmap(roadmap)
@@ -476,12 +584,13 @@ public class RoadmapService {
                     .orderIndex(order)
                     .status(CheckpointStatus.PENDING)
                     .subtasks(subtasks)
+                    .learningResources(learningResources)
                     .build());
 
             eventPayloads.add(new RoadmapGeneratedEvent.CheckpointPayload(
                     cp.getId(), cp.getTitle(), cp.getDescription(), order,
                     Instant.now().plus(daysOffset, ChronoUnit.DAYS), TaskPriority.HIGH,
-                    cp.getSubtasks()
+                    cp.getSubtasks(), cp.getLearningResources()
             ));
             order++;
             daysOffset += 2;
@@ -569,5 +678,13 @@ public class RoadmapService {
 
     private record CompletionState(UUID roadmapId, UUID userId, UUID sessionId, String roadmapTitle,
                                    String nextTopic, int checkpointCount, String completedTopics) {
+    }
+
+    private record LearningMaterialsContext(
+            String title,
+            String description,
+            String currentTopic,
+            String roadmapTitle,
+            List<LearningResourceDto> resources) {
     }
 }

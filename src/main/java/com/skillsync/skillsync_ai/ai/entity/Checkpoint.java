@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.UUID;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+import com.skillsync.skillsync_ai.common.dto.LearningResourceDto;
 import com.skillsync.skillsync_ai.todo.dto.SubtaskDto;
 
 @Entity
@@ -59,6 +60,15 @@ public class Checkpoint {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")
     private List<SubtaskDto> subtasks;
+
+    /**
+     * AI-curated learning materials for this checkpoint. YouTube videos are
+     * preferred; the AI service falls back to a YouTube search link when it
+     * cannot verify an exact video URL.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "learning_resources", columnDefinition = "jsonb")
+    private List<LearningResourceDto> learningResources;
 
     @Column(name = "completed_at")
     private Instant completedAt;

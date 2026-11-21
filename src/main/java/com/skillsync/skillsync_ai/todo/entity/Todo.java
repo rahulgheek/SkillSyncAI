@@ -1,5 +1,6 @@
 package com.skillsync.skillsync_ai.todo.entity;
 
+import com.skillsync.skillsync_ai.common.dto.LearningResourceDto;
 import com.skillsync.skillsync_ai.common.enums.TaskPriority;
 import com.skillsync.skillsync_ai.todo.entity.enums.TodoStatus;
 import jakarta.persistence.*;
@@ -76,6 +77,14 @@ public class Todo {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")
     private List<SubtaskDto> subtasks;
+
+    /**
+     * AI-curated learning materials copied from the roadmap checkpoint so the
+     * task list can render videos without a second request.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "learning_resources", columnDefinition = "jsonb")
+    private List<LearningResourceDto> learningResources;
 
     // --- Auditing & Soft Delete Fields ---
     @CreatedDate

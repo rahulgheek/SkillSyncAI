@@ -14,6 +14,7 @@ import com.skillsync.skillsync_ai.ai.entity.enums.RoadmapStatus;
 import com.skillsync.skillsync_ai.ai.repo.CheckpointRepository;
 import com.skillsync.skillsync_ai.ai.repo.RoadmapRepository;
 import com.skillsync.skillsync_ai.ai.repo.RoadmapSessionRepository;
+import com.skillsync.skillsync_ai.common.dto.LearningResourceDto;
 import com.skillsync.skillsync_ai.common.enums.TaskPriority;
 import com.skillsync.skillsync_ai.common.exception.ResourceNotFoundException;
 import com.skillsync.skillsync_ai.todo.TodoGateway;
@@ -181,6 +182,7 @@ class RoadmapSessionServiceTest {
         assertThat(response.tasks()).hasSize(1);
         assertThat(response.tasks().get(0).subtasks()).hasSize(1);
         assertThat(response.tasks().get(0).subtasks().get(0).getTitle()).isEqualTo("Read the docs");
+        assertThat(response.roadmaps().get(0).checkpoints().get(0).learningResources()).hasSize(1);
         assertThat(response.progress().progressPercentage()).isZero();
     }
 
@@ -421,6 +423,10 @@ class RoadmapSessionServiceTest {
                 .status(status)
                 .dueDate(LocalDate.now().plusDays(1))
                 .subtasks(List.of(new SubtaskDto("sub-1", "Read the docs", false)))
+                .learningResources(List.of(new LearningResourceDto(
+                        "Spring Boot Tutorial", "freeCodeCamp.org",
+                        "https://www.youtube.com/watch?v=abc123", "YOUTUBE_VIDEO",
+                        "Popular full course", "1h 20m")))
                 .build();
     }
 
@@ -437,6 +443,7 @@ class RoadmapSessionServiceTest {
                 sessionId,
                 "Roadmap: Path to Backend Developer",
                 Instant.now(),
-                List.of(new SubtaskDto("sub-1", "Read the docs", false)));
+                List.of(new SubtaskDto("sub-1", "Read the docs", false)),
+                List.of());
     }
 }

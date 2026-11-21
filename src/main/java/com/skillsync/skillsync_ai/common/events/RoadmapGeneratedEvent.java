@@ -1,5 +1,6 @@
 package com.skillsync.skillsync_ai.common.events;
 
+import com.skillsync.skillsync_ai.common.dto.LearningResourceDto;
 import com.skillsync.skillsync_ai.common.enums.TaskPriority;
 
 import java.time.Instant;
@@ -22,6 +23,7 @@ public record RoadmapGeneratedEvent(
             short orderIndex,
             Instant dueDate,        // UPGRADED: AI calculates the exact date
             TaskPriority priority,   // UPGRADED: Strict typing, no parsing needed!
-            List<SubtaskDto> subtasks
+            List<SubtaskDto> subtasks,
+            List<LearningResourceDto> learningResources
     ) {}
 }

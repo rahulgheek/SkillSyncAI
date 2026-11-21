@@ -1,5 +1,6 @@
 package com.skillsync.skillsync_ai.todo.dto;
 
+import com.skillsync.skillsync_ai.common.dto.LearningResourceDto;
 import com.skillsync.skillsync_ai.common.enums.TaskPriority;
 import com.skillsync.skillsync_ai.todo.entity.Todo;
 import com.skillsync.skillsync_ai.todo.entity.enums.TodoStatus;
@@ -20,7 +21,8 @@ public record TodoResponse(
         UUID roadmapSessionId,
         String sourceTitle, // Frontend can display this as a subtle tag
         Instant createdAt,
-        List<SubtaskDto> subtasks
+        List<SubtaskDto> subtasks,
+        List<LearningResourceDto> learningResources
 ) {
     public static TodoResponse from(Todo todo) {
         return new TodoResponse(
@@ -35,7 +37,8 @@ public record TodoResponse(
                 todo.getRoadmapSessionId(),
                 todo.getSourceTitle(),
                 todo.getCreatedAt(),
-                todo.getSubtasks()
+                todo.getSubtasks(),
+                todo.getLearningResources()
         );
     }
 }

@@ -41,6 +41,9 @@ public interface TodoRepository extends JpaRepository<Todo, UUID> {
     // Check if a todo already exists for a specific related entity (e.g., an AI Checkpoint)
     boolean existsByUserIdAndRelatedEntityId(UUID userId, UUID relatedEntityId);
 
+    // Used when AI learning materials are generated for an existing checkpoint.
+    Optional<Todo> findFirstByRelatedEntityId(UUID relatedEntityId);
+
     @Query("SELECT t.relatedEntityId FROM Todo t WHERE t.userId = :userId AND t.relatedEntityId IN :entityIds")
     Set<UUID> findExistingRelatedEntityIds(@Param("userId") UUID userId, @Param("entityIds") List<UUID> entityIds);
 

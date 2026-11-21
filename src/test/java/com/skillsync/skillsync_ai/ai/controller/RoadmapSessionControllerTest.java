@@ -235,7 +235,7 @@ class RoadmapSessionControllerTest {
                 new RoadmapSessionDetailResponse.CheckpointDetail(
                         checkpointId, "Learn: Task", "Task description", (short) 1,
                         CheckpointStatus.PENDING, LocalDate.now().plusDays(1), null,
-                        List.of(new SubtaskDto("sub-1", "Read the docs", false)));
+                        List.of(new SubtaskDto("sub-1", "Read the docs", false)), List.of());
 
         RoadmapSessionDetailResponse.RoadmapDetail roadmap =
                 new RoadmapSessionDetailResponse.RoadmapDetail(
@@ -265,7 +265,7 @@ class RoadmapSessionControllerTest {
                 UUID.randomUUID(), "Learn: Task", "Task description",
                 TodoStatus.PENDING, TaskPriority.HIGH, now, null,
                 UUID.randomUUID(), sessionId, "Roadmap: Path to Backend Developer",
-                now, List.of(new SubtaskDto("sub-1", "Read the docs", false)));
+                now, List.of(new SubtaskDto("sub-1", "Read the docs", false)), List.of());
     }
 
     private static final class CurrentUserArgumentResolver implements HandlerMethodArgumentResolver {

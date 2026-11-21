@@ -4,6 +4,7 @@ import com.skillsync.skillsync_ai.ai.entity.Roadmap;
 import com.skillsync.skillsync_ai.ai.entity.enums.CheckpointStatus;
 import com.skillsync.skillsync_ai.ai.services.RoadmapService;
 import com.skillsync.skillsync_ai.authentication.entity.User;
+import com.skillsync.skillsync_ai.common.dto.LearningResourceDto;
 import com.skillsync.skillsync_ai.common.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -11,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -81,5 +83,19 @@ public class RoadmapController {
             @RequestParam CheckpointStatus status) {
         roadmapService.updateCheckpointStatus(currentUser.getId(), checkpointId, status);
         return ResponseEntity.ok(ApiResponse.success("Checkpoint status updated", null));
+    }
+
+    /**
+     * Returns the AI-curated learning materials for a checkpoint. Existing
+     * resources are returned immediately; missing resources are generated on
+     * demand. Pass {@code refresh=true} to ask the AI for a fresh set.
+     */
+    @PostMapping("/checkpoints/{checkpointId}/learning-materials")
+    public ResponseEntity<ApiResponse<List<LearningResourceDto>>> getLearningMaterials(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable UUID checkpointId,
+            @RequestParam(defaultValue = "false") boolean refresh) {
+        return ResponseEntity.ok(ApiResponse.success("Learning materials retrieved",
+                roadmapService.getLearningMaterials(currentUser.getId(), checkpointId, refresh)));
     }
 }

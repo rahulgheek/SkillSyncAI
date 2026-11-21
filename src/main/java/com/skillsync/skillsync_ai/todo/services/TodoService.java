@@ -1,8 +1,12 @@
 package com.skillsync.skillsync_ai.todo.services;
 
 import com.skillsync.skillsync_ai.common.enums.TaskPriority;
+import com.skillsync.skillsync_ai.common.events.LearningMaterialsGeneratedEvent;
 import com.skillsync.skillsync_ai.common.events.RoadmapGeneratedEvent;
+import com.skillsync.skillsync_ai.common.events.TodoCompletedEvent;
+import com.skillsync.skillsync_ai.common.events.TodoReopenedEvent;
 import com.skillsync.skillsync_ai.common.exception.ResourceNotFoundException;
+import com.skillsync.skillsync_ai.todo.dto.SubtaskDto;
 import com.skillsync.skillsync_ai.todo.dto.TodoRequest;
 import com.skillsync.skillsync_ai.todo.dto.TodoResponse;
 import com.skillsync.skillsync_ai.todo.entity.Todo;
@@ -78,6 +82,14 @@ public class TodoService {
     @Transactional
     public TodoResponse updateStatus(UUID userId, UUID todoId, TodoStatus newStatus) {
         Todo todo = getTodoSafely(userId, todoId);
+        boolean wasCompleted = todo.getStatus() == TodoStatus.COMPLETED;
+
+        // A task with subtasks can only be completed when every subtask is
+        // done. Tasks without subtasks (manual to-dos) keep the old behaviour.
+        if (newStatus == TodoStatus.COMPLETED && !allSubtasksCompleted(todo)) {
+            throw new IllegalStateException(
+                    "Complete all subtasks before marking this task as completed.");
+        }
 
         todo.setStatus(newStatus);
         if (newStatus == TodoStatus.COMPLETED) {
@@ -87,11 +99,11 @@ public class TodoService {
         }
 
         Todo savedTodo = todoRepository.save(todo);
-        
-        if (newStatus == TodoStatus.COMPLETED && savedTodo.getRelatedEntityId() != null) {
-            eventPublisher.publishEvent(new com.skillsync.skillsync_ai.common.events.TodoCompletedEvent(
-                    userId, savedTodo.getId(), savedTodo.getRelatedEntityId()
-            ));
+
+        if (newStatus == TodoStatus.COMPLETED && !wasCompleted) {
+            publishCompleted(savedTodo);
+        } else if (newStatus != TodoStatus.COMPLETED && wasCompleted) {
+            publishReopened(savedTodo);
         }
 
         return mapToResponse(savedTodo);
@@ -145,6 +157,7 @@ public class TodoService {
                     .roadmapSessionId(event.sessionId())
                     .sourceTitle("Roadmap: " + event.roadmapTitle())
                     .subtasks(cp.subtasks())
+                    .learningResources(cp.learningResources())
                     .build();
 
             todosToSave.add(todo);
@@ -178,17 +191,78 @@ public class TodoService {
     @Transactional
     public TodoResponse toggleSubtask(UUID userId, UUID todoId, String subtaskId) {
         Todo todo = getTodoSafely(userId, todoId);
-        if (todo.getSubtasks() != null) {
-            for (com.skillsync.skillsync_ai.todo.dto.SubtaskDto st : todo.getSubtasks()) {
-                if (st.getId().equals(subtaskId)) {
-                    st.setCompleted(!st.isCompleted());
-                    break;
-                }
-            }
-            todo = todoRepository.save(todo);
+        if (todo.getSubtasks() == null || todo.getSubtasks().isEmpty()) {
+            throw new IllegalArgumentException("This task has no subtasks.");
         }
-        return mapToResponse(todo);
+
+        boolean found = false;
+        for (SubtaskDto subtask : todo.getSubtasks()) {
+            if (subtask.getId() != null && subtask.getId().equals(subtaskId)) {
+                subtask.setCompleted(!subtask.isCompleted());
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            throw new ResourceNotFoundException("Subtask not found.");
+        }
+
+        boolean wasCompleted = todo.getStatus() == TodoStatus.COMPLETED;
+        boolean allCompleted = allSubtasksCompleted(todo);
+
+        if (allCompleted) {
+            todo.setStatus(TodoStatus.COMPLETED);
+            todo.setCompletedAt(Instant.now());
+        } else {
+            // Any open subtask keeps the task active. Unchecking a subtask on a
+            // completed task reopens it, and a task with no completed subtasks
+            // returns to PENDING.
+            boolean anyCompleted = todo.getSubtasks().stream().anyMatch(SubtaskDto::isCompleted);
+            todo.setStatus(anyCompleted ? TodoStatus.IN_PROGRESS : TodoStatus.PENDING);
+            todo.setCompletedAt(null);
+        }
+
+        Todo savedTodo = todoRepository.save(todo);
+
+        if (allCompleted && !wasCompleted) {
+            publishCompleted(savedTodo);
+        } else if (!allCompleted && wasCompleted) {
+            publishReopened(savedTodo);
+        }
+
+        return mapToResponse(savedTodo);
     }
 
-    // CHANGED: Deleted the getPendingTodosForAi method entirely. It lives in TodoGatewayImpl now!
+    /**
+     * Keeps the task copy in sync when materials are generated later for an
+     * existing checkpoint.
+     */
+    @ApplicationModuleListener
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void onLearningMaterialsGenerated(LearningMaterialsGeneratedEvent event) {
+        todoRepository.findFirstByRelatedEntityId(event.checkpointId()).ifPresent(todo -> {
+            todo.setLearningResources(event.learningResources());
+            todoRepository.save(todo);
+        });
+    }
+
+    private boolean allSubtasksCompleted(Todo todo) {
+        return todo.getSubtasks() == null
+                || todo.getSubtasks().isEmpty()
+                || todo.getSubtasks().stream().allMatch(SubtaskDto::isCompleted);
+    }
+
+    private void publishCompleted(Todo todo) {
+        if (todo.getRelatedEntityId() != null) {
+            eventPublisher.publishEvent(new TodoCompletedEvent(
+                    todo.getUserId(), todo.getId(), todo.getRelatedEntityId()));
+        }
+    }
+
+    private void publishReopened(Todo todo) {
+        if (todo.getRelatedEntityId() != null) {
+            eventPublisher.publishEvent(new TodoReopenedEvent(
+                    todo.getUserId(), todo.getId(), todo.getRelatedEntityId()));
+        }
+    }
 }

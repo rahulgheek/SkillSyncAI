@@ -1,8 +1,10 @@
 package com.skillsync.skillsync_ai.todo.services;
 
+import com.skillsync.skillsync_ai.common.dto.LearningResourceDto;
 import com.skillsync.skillsync_ai.common.enums.TaskPriority;
 import com.skillsync.skillsync_ai.common.events.RoadmapGeneratedEvent;
 import com.skillsync.skillsync_ai.common.events.TodoCompletedEvent;
+import com.skillsync.skillsync_ai.common.events.TodoReopenedEvent;
 import com.skillsync.skillsync_ai.todo.dto.SubtaskDto;
 import com.skillsync.skillsync_ai.todo.dto.TodoResponse;
 import com.skillsync.skillsync_ai.todo.entity.Todo;
@@ -25,6 +27,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
@@ -61,6 +64,10 @@ class TodoServiceTest {
         List<SubtaskDto> subtasks = List.of(
                 new SubtaskDto("sub-1", "Read the docs", false),
                 new SubtaskDto("sub-2", "Build a sample", false));
+        List<LearningResourceDto> resources = List.of(new LearningResourceDto(
+                "Spring Boot Tutorial", "freeCodeCamp.org",
+                "https://www.youtube.com/watch?v=abc123", "YOUTUBE_VIDEO",
+                "Popular full course", "1h 20m"));
 
         RoadmapGeneratedEvent event = new RoadmapGeneratedEvent(
                 userId,
@@ -74,7 +81,8 @@ class TodoServiceTest {
                         (short) 1,
                         dueDate,
                         TaskPriority.HIGH,
-                        subtasks)));
+                        subtasks,
+                        resources)));
 
         when(todoRepository.findExistingRelatedEntityIds(userId, List.of(checkpointId)))
                 .thenReturn(Set.of());
@@ -101,6 +109,7 @@ class TodoServiceTest {
         assertThat(todo.getSourceTitle())
                 .isEqualTo("Roadmap: Path to Backend Developer | Topic: Spring Boot");
         assertThat(todo.getSubtasks()).containsExactlyElementsOf(subtasks);
+        assertThat(todo.getLearningResources()).containsExactlyElementsOf(resources);
     }
 
     // TC-TODO-002: Re-delivered events must not create duplicate tasks.
@@ -117,7 +126,7 @@ class TodoServiceTest {
                 "Roadmap",
                 List.of(new RoadmapGeneratedEvent.CheckpointPayload(
                         checkpointId, "Task", "Description", (short) 1,
-                        Instant.now(), TaskPriority.MEDIUM, List.of())));
+                        Instant.now(), TaskPriority.MEDIUM, List.of(), List.of())));
 
         when(todoRepository.findExistingRelatedEntityIds(userId, List.of(checkpointId)))
                 .thenReturn(Set.of(checkpointId));
@@ -143,10 +152,10 @@ class TodoServiceTest {
                 List.of(
                         new RoadmapGeneratedEvent.CheckpointPayload(
                                 existingId, "Existing", "Already saved", (short) 1,
-                                Instant.now(), TaskPriority.MEDIUM, List.of()),
+                                Instant.now(), TaskPriority.MEDIUM, List.of(), List.of()),
                         new RoadmapGeneratedEvent.CheckpointPayload(
                                 newId, "New", "Not saved yet", (short) 2,
-                                Instant.now(), TaskPriority.HIGH, List.of())));
+                                Instant.now(), TaskPriority.HIGH, List.of(), List.of())));
 
         when(todoRepository.findExistingRelatedEntityIds(userId, List.of(existingId, newId)))
                 .thenReturn(Set.of(existingId));
@@ -287,5 +296,207 @@ class TodoServiceTest {
         verify(todoRepository).findAllByUserIdAndStatus(eq(userId), eq(TodoStatus.PENDING), eq(pageable));
         verify(todoRepository, never()).findAllByUserIdAndRoadmapSessionId(
                 any(), any(), any());
+    }
+
+    // TC-TODO-009: The last completed subtask automatically completes the task.
+    @Test
+    void toggleSubtask_lastSubtask_autoCompletesTaskAndPublishesEvent() {
+        setUp();
+
+        UUID userId = UUID.randomUUID();
+        UUID todoId = UUID.randomUUID();
+        UUID checkpointId = UUID.randomUUID();
+        Todo todo = Todo.builder()
+                .id(todoId)
+                .userId(userId)
+                .title("Task")
+                .status(TodoStatus.IN_PROGRESS)
+                .relatedEntityId(checkpointId)
+                .subtasks(new java.util.ArrayList<>(List.of(
+                        new SubtaskDto("sub-1", "Read the docs", true),
+                        new SubtaskDto("sub-2", "Build a sample", false))))
+                .build();
+
+        when(todoRepository.findByIdAndUserId(todoId, userId)).thenReturn(java.util.Optional.of(todo));
+        when(todoRepository.save(any(Todo.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TodoResponse response = todoService.toggleSubtask(userId, todoId, "sub-2");
+
+        assertThat(response.status()).isEqualTo(TodoStatus.COMPLETED);
+        assertThat(todo.getCompletedAt()).isNotNull();
+
+        ArgumentCaptor<TodoCompletedEvent> captor = ArgumentCaptor.forClass(TodoCompletedEvent.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertThat(captor.getValue().todoId()).isEqualTo(todoId);
+        assertThat(captor.getValue().relatedEntityId()).isEqualTo(checkpointId);
+    }
+
+    // TC-TODO-010: A task stays active while at least one subtask is incomplete.
+    @Test
+    void toggleSubtask_partialCompletion_doesNotCompleteTask() {
+        setUp();
+
+        UUID userId = UUID.randomUUID();
+        UUID todoId = UUID.randomUUID();
+        Todo todo = Todo.builder()
+                .id(todoId)
+                .userId(userId)
+                .title("Task")
+                .status(TodoStatus.PENDING)
+                .relatedEntityId(UUID.randomUUID())
+                .subtasks(new java.util.ArrayList<>(List.of(
+                        new SubtaskDto("sub-1", "Read the docs", false),
+                        new SubtaskDto("sub-2", "Build a sample", false))))
+                .build();
+
+        when(todoRepository.findByIdAndUserId(todoId, userId)).thenReturn(java.util.Optional.of(todo));
+        when(todoRepository.save(any(Todo.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TodoResponse response = todoService.toggleSubtask(userId, todoId, "sub-1");
+
+        assertThat(response.status()).isEqualTo(TodoStatus.IN_PROGRESS);
+        assertThat(todo.getCompletedAt()).isNull();
+        verify(eventPublisher, never()).publishEvent(any(TodoCompletedEvent.class));
+    }
+
+    // TC-TODO-011: The status endpoint cannot complete a task with open subtasks.
+    @Test
+    void updateStatus_completedWithIncompleteSubtasks_throws() {
+        setUp();
+
+        UUID userId = UUID.randomUUID();
+        UUID todoId = UUID.randomUUID();
+        Todo todo = Todo.builder()
+                .id(todoId)
+                .userId(userId)
+                .title("Task")
+                .status(TodoStatus.IN_PROGRESS)
+                .subtasks(List.of(new SubtaskDto("sub-1", "Read the docs", false)))
+                .build();
+
+        when(todoRepository.findByIdAndUserId(todoId, userId)).thenReturn(java.util.Optional.of(todo));
+
+        assertThatThrownBy(() -> todoService.updateStatus(userId, todoId, TodoStatus.COMPLETED))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("all subtasks");
+
+        verify(todoRepository, never()).save(any(Todo.class));
+        verify(eventPublisher, never()).publishEvent(any(TodoCompletedEvent.class));
+    }
+
+    // TC-TODO-012: Unchecking a subtask reopens an already completed task.
+    @Test
+    void toggleSubtask_uncheckingReopensCompletedTaskAndPublishesEvent() {
+        setUp();
+
+        UUID userId = UUID.randomUUID();
+        UUID todoId = UUID.randomUUID();
+        UUID checkpointId = UUID.randomUUID();
+        Todo todo = Todo.builder()
+                .id(todoId)
+                .userId(userId)
+                .title("Task")
+                .status(TodoStatus.COMPLETED)
+                .completedAt(Instant.now())
+                .relatedEntityId(checkpointId)
+                .subtasks(new java.util.ArrayList<>(List.of(
+                        new SubtaskDto("sub-1", "Read the docs", true),
+                        new SubtaskDto("sub-2", "Build a sample", true))))
+                .build();
+
+        when(todoRepository.findByIdAndUserId(todoId, userId)).thenReturn(java.util.Optional.of(todo));
+        when(todoRepository.save(any(Todo.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TodoResponse response = todoService.toggleSubtask(userId, todoId, "sub-1");
+
+        assertThat(response.status()).isEqualTo(TodoStatus.IN_PROGRESS);
+        assertThat(todo.getCompletedAt()).isNull();
+
+        ArgumentCaptor<TodoReopenedEvent> captor = ArgumentCaptor.forClass(TodoReopenedEvent.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertThat(captor.getValue().todoId()).isEqualTo(todoId);
+        assertThat(captor.getValue().relatedEntityId()).isEqualTo(checkpointId);
+    }
+
+    // TC-TODO-013: A task whose subtasks are all complete can be completed manually.
+    @Test
+    void updateStatus_completedWithAllSubtasksCompleted_allowed() {
+        setUp();
+
+        UUID userId = UUID.randomUUID();
+        UUID todoId = UUID.randomUUID();
+        Todo todo = Todo.builder()
+                .id(todoId)
+                .userId(userId)
+                .title("Task")
+                .status(TodoStatus.IN_PROGRESS)
+                .relatedEntityId(UUID.randomUUID())
+                .subtasks(List.of(new SubtaskDto("sub-1", "Read the docs", true)))
+                .build();
+
+        when(todoRepository.findByIdAndUserId(todoId, userId)).thenReturn(java.util.Optional.of(todo));
+        when(todoRepository.save(any(Todo.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TodoResponse response = todoService.updateStatus(userId, todoId, TodoStatus.COMPLETED);
+
+        assertThat(response.status()).isEqualTo(TodoStatus.COMPLETED);
+        assertThat(todo.getCompletedAt()).isNotNull();
+    }
+
+    // TC-TODO-014: A task with no completed subtasks returns to PENDING.
+    @Test
+    void toggleSubtask_noCompletedSubtasks_returnsTaskToPending() {
+        setUp();
+
+        UUID userId = UUID.randomUUID();
+        UUID todoId = UUID.randomUUID();
+        Todo todo = Todo.builder()
+                .id(todoId)
+                .userId(userId)
+                .title("Task")
+                .status(TodoStatus.IN_PROGRESS)
+                .subtasks(new java.util.ArrayList<>(List.of(
+                        new SubtaskDto("sub-1", "Read the docs", true),
+                        new SubtaskDto("sub-2", "Build a sample", false))))
+                .build();
+
+        when(todoRepository.findByIdAndUserId(todoId, userId)).thenReturn(java.util.Optional.of(todo));
+        when(todoRepository.save(any(Todo.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TodoResponse response = todoService.toggleSubtask(userId, todoId, "sub-1");
+
+        assertThat(response.status()).isEqualTo(TodoStatus.PENDING);
+        assertThat(todo.getCompletedAt()).isNull();
+        verify(eventPublisher, never()).publishEvent(any(TodoCompletedEvent.class));
+    }
+
+    // TC-TODO-015: Learning materials generated for a checkpoint reach the task.
+    @Test
+    void onLearningMaterialsGenerated_updatesTaskCopy() {
+        setUp();
+
+        UUID todoId = UUID.randomUUID();
+        UUID checkpointId = UUID.randomUUID();
+        Todo todo = Todo.builder()
+                .id(todoId)
+                .userId(UUID.randomUUID())
+                .title("Task")
+                .status(TodoStatus.PENDING)
+                .relatedEntityId(checkpointId)
+                .build();
+        List<LearningResourceDto> resources = List.of(new LearningResourceDto(
+                "Docker Tutorial", "TechWorld with Nana",
+                "https://www.youtube.com/watch?v=abc123", "YOUTUBE_VIDEO",
+                "Popular Docker crash course", "2h"));
+
+        when(todoRepository.findFirstByRelatedEntityId(checkpointId))
+                .thenReturn(java.util.Optional.of(todo));
+
+        todoService.onLearningMaterialsGenerated(
+                new com.skillsync.skillsync_ai.common.events.LearningMaterialsGeneratedEvent(
+                        checkpointId, resources));
+
+        assertThat(todo.getLearningResources()).containsExactlyElementsOf(resources);
+        verify(todoRepository).save(todo);
     }
 }

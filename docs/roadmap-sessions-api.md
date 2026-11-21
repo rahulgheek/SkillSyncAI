@@ -100,6 +100,16 @@ When `skillGapId` is present the other free-text fields are ignored.
                 "title": "Read the Spring MVC docs",
                 "completed": false
               }
+            ],
+            "learningResources": [
+              {
+                "title": "Spring Boot Tutorial for Beginners",
+                "channel": "freeCodeCamp.org",
+                "url": "https://www.youtube.com/watch?v=...",
+                "type": "YOUTUBE_VIDEO",
+                "description": "A popular full-length introduction to the topic.",
+                "duration": "1h 20m"
+              }
             ]
           }
         ]
@@ -123,6 +133,16 @@ When `skillGapId` is present the other free-text fields are ignored.
             "id": "0b6f...",
             "title": "Read the Spring MVC docs",
             "completed": false
+          }
+        ],
+        "learningResources": [
+          {
+            "title": "Spring Boot Tutorial for Beginners",
+            "channel": "freeCodeCamp.org",
+            "url": "https://www.youtube.com/watch?v=...",
+            "type": "YOUTUBE_VIDEO",
+            "description": "A popular full-length introduction to the topic.",
+            "duration": "1h 20m"
           }
         ]
       }
@@ -198,14 +218,75 @@ and tasks remain available.
 - `PATCH /api/v1/todos/{todoId}/subtasks/{subtaskId}/toggle`
 - `GET /api/v1/todos?sessionId={sessionId}`
 
+### Completion rules
+
+- Toggling the last incomplete subtask automatically marks the task
+  `COMPLETED` and records `completedAt`.
+- A task with at least one incomplete subtask is never marked `COMPLETED`.
+  `PATCH /status?status=COMPLETED` returns `400` with
+  "Complete all subtasks before marking this task as completed."
+- Unchecking a subtask on a completed task reopens it (`IN_PROGRESS` or
+  `PENDING`) and clears `completedAt`.
+- Reopening a task moves its checkpoint back to `PENDING` and reactivates a
+  completed roadmap/session, so roadmap progress stays consistent.
+- Tasks without subtasks (manually created to-dos) can still be completed
+  directly.
+
 Completing every checkpoint in a roadmap automatically generates the next
 topic's tasks. Completing every roadmap in a session marks the session
 `COMPLETED`.
 
+## Learning materials
+
+Every checkpoint and task includes a `learningResources` array:
+
+```json
+[
+  {
+    "title": "Spring Boot Tutorial for Beginners",
+    "channel": "freeCodeCamp.org",
+    "url": "https://www.youtube.com/watch?v=...",
+    "type": "YOUTUBE_VIDEO",
+    "description": "A popular full-length introduction to the topic.",
+    "duration": "1h 20m"
+  },
+  {
+    "title": "Spring Boot Reference Documentation",
+    "channel": "Spring",
+    "url": "https://docs.spring.io/spring-boot/",
+    "type": "DOCUMENTATION",
+    "description": "Official reference for the framework.",
+    "duration": null
+  }
+]
+```
+
+The AI is asked for popular, widely watched YouTube videos from reputable
+channels. Supported `type` values are `YOUTUBE_VIDEO`, `DOCUMENTATION`,
+`ARTICLE`, `COURSE`, and `OTHER`.
+
+Because a language model cannot guarantee that a specific video URL still
+exists, the backend validates every link:
+
+- a valid YouTube URL is kept as-is;
+- a missing or non-YouTube "video" URL is replaced with a working YouTube
+  search URL for the task title and topic;
+- if the AI returns no resources at all, a YouTube search fallback is still
+  added, so every task has at least one video link.
+
+Generate or refresh materials for an existing checkpoint (for example a
+roadmap created before this feature):
+
+`POST /api/v1/roadmaps/checkpoints/{checkpointId}/learning-materials?refresh=true`
+
+Without `refresh=true`, stored materials are returned and the AI is not called.
+The updated list is also copied to the matching task automatically.
+
 ## Database migration
 
-Apply `docs/migrations/2026-11-21-roadmap-sessions.sql` before deploying. The
-application runs with `spring.jpa.hibernate.ddl-auto=validate`, so the new
-`ai.roadmap_sessions` table and the `session_id` / `roadmap_session_id` columns
-must exist at startup. The migration also backfills existing roadmaps and tasks
-into sessions so old data continues to appear in the new UI.
+Apply `docs/migrations/2026-11-21-roadmap-sessions.sql` and
+`docs/migrations/2026-11-22-roadmap-learning-resources.sql` before deploying.
+The application runs with `spring.jpa.hibernate.ddl-auto=update`, so Hibernate
+can also create the new columns, but the SQL files are the explicit production
+path. The session migration backfills existing roadmaps and tasks into sessions
+so old data continues to appear in the new UI.

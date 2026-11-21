@@ -15,6 +15,8 @@ import com.skillsync.skillsync_ai.ai.repo.RoadmapRepository;
 import com.skillsync.skillsync_ai.ai.repo.RoadmapSessionRepository;
 import com.skillsync.skillsync_ai.ai.repo.SkillGapAnalysisRepository;
 import com.skillsync.skillsync_ai.chat.ChatGateway;
+import com.skillsync.skillsync_ai.common.dto.LearningResourceDto;
+import com.skillsync.skillsync_ai.common.events.LearningMaterialsGeneratedEvent;
 import com.skillsync.skillsync_ai.common.events.RoadmapDeactivatedEvent;
 import com.skillsync.skillsync_ai.common.events.RoadmapGeneratedEvent;
 import com.skillsync.skillsync_ai.userprofile.UserProfileGateway;
@@ -47,6 +49,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -66,6 +69,9 @@ class RoadmapServiceTest {
 
     @Mock
     private GeminiApiService geminiApiService;
+
+    @Mock
+    private LearningMaterialService learningMaterialService;
 
     @Mock
     private ApplicationEventPublisher eventPublisher;
@@ -89,6 +95,7 @@ class RoadmapServiceTest {
                 roadmapSessionRepository,
                 skillGapRepository,
                 geminiApiService,
+                learningMaterialService,
                 eventPublisher,
                 transactionTemplate,
                 userProfileGateway,
@@ -150,6 +157,12 @@ class RoadmapServiceTest {
                 "description", "Create a controller with validation.",
                 "subtasks", List.of("Read the docs", "Build a sample", "Add validation"))));
 
+        List<LearningResourceDto> resources = List.of(new LearningResourceDto(
+                "Spring Boot Tutorial", "freeCodeCamp.org",
+                "https://www.youtube.com/watch?v=abc123", "YOUTUBE_VIDEO",
+                "Popular full course", "1h 20m"));
+        when(learningMaterialService.fromAiStep(any(), anyString(), anyString())).thenReturn(resources);
+
         RoadmapSession session = roadmapService.generateRoadmapSessionFromGap(userId, gapId);
 
         assertThat(session.getId()).isNotNull();
@@ -169,6 +182,7 @@ class RoadmapServiceTest {
         assertThat(checkpoint.getSubtasks()).hasSize(3);
         assertThat(checkpoint.getSubtasks()).extracting("title")
                 .containsExactly("Read the docs", "Build a sample", "Add validation");
+        assertThat(checkpoint.getLearningResources()).containsExactlyElementsOf(resources);
 
         ArgumentCaptor<RoadmapGeneratedEvent> eventCaptor =
                 ArgumentCaptor.forClass(RoadmapGeneratedEvent.class);
@@ -178,6 +192,7 @@ class RoadmapServiceTest {
         assertThat(event.roadmapId()).isEqualTo(roadmap.getId());
         assertThat(event.checkpoints()).hasSize(1);
         assertThat(event.checkpoints().get(0).subtasks()).hasSize(3);
+        assertThat(event.checkpoints().get(0).learningResources()).containsExactlyElementsOf(resources);
     }
 
     // TC-ROADMAP-002: A failed AI call marks both the roadmap and the session FAILED.
@@ -386,6 +401,83 @@ class RoadmapServiceTest {
         assertThat(savedRoadmaps).extracting(Roadmap::getSession)
                 .containsExactly(first, second);
         verify(eventPublisher, never()).publishEvent(any(RoadmapDeactivatedEvent.class));
+    }
+
+    // TC-ROADMAP-005: Missing materials for an existing checkpoint are generated
+    // on demand, saved, and announced to the todo module.
+    @Test
+    void getLearningMaterials_generatesAndPersistsWhenMissing() {
+        UUID userId = UUID.randomUUID();
+        UUID checkpointId = UUID.randomUUID();
+        Roadmap roadmap = Roadmap.builder()
+                .id(UUID.randomUUID())
+                .userId(userId)
+                .title("Path to Docker")
+                .currentTopic("Docker fundamentals")
+                .build();
+        Checkpoint checkpoint = Checkpoint.builder()
+                .id(checkpointId)
+                .roadmap(roadmap)
+                .title("Learn Docker")
+                .description("Build a small image.")
+                .build();
+
+        List<LearningResourceDto> resources = List.of(new LearningResourceDto(
+                "Docker Tutorial", "TechWorld with Nana",
+                "https://www.youtube.com/watch?v=abc123", "YOUTUBE_VIDEO",
+                "Popular Docker crash course", "2h"));
+
+        when(checkpointRepository.findById(checkpointId)).thenReturn(Optional.of(checkpoint));
+        when(checkpointRepository.save(any(Checkpoint.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(mock(TransactionStatus.class));
+        });
+        executeWithoutResultImmediately();
+        when(learningMaterialService.generateForTask(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(resources);
+
+        List<LearningResourceDto> result = roadmapService.getLearningMaterials(userId, checkpointId, false);
+
+        assertThat(result).containsExactlyElementsOf(resources);
+        assertThat(checkpoint.getLearningResources()).containsExactlyElementsOf(resources);
+        verify(checkpointRepository).save(checkpoint);
+        verify(eventPublisher).publishEvent(any(LearningMaterialsGeneratedEvent.class));
+    }
+
+    // TC-ROADMAP-006: Stored materials are returned without another AI call.
+    @Test
+    void getLearningMaterials_returnsStoredResourcesWithoutAiCall() {
+        UUID userId = UUID.randomUUID();
+        UUID checkpointId = UUID.randomUUID();
+        List<LearningResourceDto> resources = List.of(new LearningResourceDto(
+                "Docker Tutorial", "TechWorld with Nana",
+                "https://www.youtube.com/watch?v=abc123", "YOUTUBE_VIDEO",
+                "Popular Docker crash course", "2h"));
+
+        Roadmap roadmap = Roadmap.builder()
+                .id(UUID.randomUUID())
+                .userId(userId)
+                .title("Path to Docker")
+                .currentTopic("Docker fundamentals")
+                .build();
+        Checkpoint checkpoint = Checkpoint.builder()
+                .id(checkpointId)
+                .roadmap(roadmap)
+                .title("Learn Docker")
+                .learningResources(resources)
+                .build();
+
+        when(checkpointRepository.findById(checkpointId)).thenReturn(Optional.of(checkpoint));
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(mock(TransactionStatus.class));
+        });
+
+        List<LearningResourceDto> result = roadmapService.getLearningMaterials(userId, checkpointId, false);
+
+        assertThat(result).containsExactlyElementsOf(resources);
+        verifyNoInteractions(learningMaterialService);
     }
 
     private void executeWithoutResultImmediately() {

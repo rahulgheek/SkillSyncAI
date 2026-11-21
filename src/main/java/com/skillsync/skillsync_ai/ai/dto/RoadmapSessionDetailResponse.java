@@ -3,6 +3,7 @@ package com.skillsync.skillsync_ai.ai.dto;
 import com.skillsync.skillsync_ai.ai.entity.enums.CheckpointStatus;
 import com.skillsync.skillsync_ai.ai.entity.enums.RoadmapSessionStatus;
 import com.skillsync.skillsync_ai.ai.entity.enums.RoadmapStatus;
+import com.skillsync.skillsync_ai.common.dto.LearningResourceDto;
 import com.skillsync.skillsync_ai.todo.dto.SubtaskDto;
 import com.skillsync.skillsync_ai.todo.dto.TodoResponse;
 
@@ -61,7 +62,8 @@ public record RoadmapSessionDetailResponse(
             CheckpointStatus status,
             LocalDate dueDate,
             Instant completedAt,
-            List<SubtaskDto> subtasks
+            List<SubtaskDto> subtasks,
+            List<LearningResourceDto> learningResources
     ) {
     }
 }

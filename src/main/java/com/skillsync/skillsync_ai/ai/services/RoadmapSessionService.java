@@ -218,7 +218,8 @@ public class RoadmapSessionService {
                         checkpoint.getStatus(),
                         checkpoint.getDueDate(),
                         checkpoint.getCompletedAt(),
-                        checkpoint.getSubtasks() == null ? List.of() : checkpoint.getSubtasks()))
+                        checkpoint.getSubtasks() == null ? List.of() : checkpoint.getSubtasks(),
+                        checkpoint.getLearningResources() == null ? List.of() : checkpoint.getLearningResources()))
                 .toList();
 
         return new RoadmapSessionDetailResponse.RoadmapDetail(

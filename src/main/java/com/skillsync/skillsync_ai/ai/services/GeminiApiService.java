@@ -97,9 +97,17 @@ public class GeminiApiService {
             You are an expert technical mentor. A student is missing the following skills required for a project: %s.
             Generate a step-by-step learning roadmap for them to acquire these skills.
 
-            CRITICAL REQUIREMENT:
+            CRITICAL REQUIREMENTS:
             Generate 3 to 5 tasks.
             For EVERY task you MUST provide a "subtasks" array containing EXACTLY 3 to 5 actionable subtasks.
+            For EVERY task you MUST also provide a "learningResources" array containing 2 to 4 learning resources.
+            - Include at least one popular YouTube video from a reputable, widely watched channel
+              (for example freeCodeCamp, Programming with Mosh, Traversy Media, Fireship, Net Ninja, CS50).
+            - Prefer videos that are genuinely popular and highly rated for this exact topic.
+            - Only use a direct YouTube URL when you are confident the video exists.
+              If you are not certain, use a YouTube search URL such as
+              "https://www.youtube.com/results?search_query=spring+boot+testing".
+            - You may add official documentation as an extra resource with "type": "DOCUMENTATION".
 
             Return the output EXACTLY in this JSON array structure (do NOT wrap in any other object):
             [
@@ -110,6 +118,16 @@ public class GeminiApiService {
                   "Read the official documentation overview",
                   "Complete a beginner tutorial",
                   "Write a small example from scratch"
+                ],
+                "learningResources": [
+                  {
+                    "title": "Spring Boot Tutorial for Beginners",
+                    "channel": "freeCodeCamp.org",
+                    "url": "https://www.youtube.com/watch?v=example",
+                    "type": "YOUTUBE_VIDEO",
+                    "description": "A popular full-length introduction to the topic.",
+                    "duration": "1h 20m"
+                  }
                 ]
               }
             ]
@@ -188,9 +206,17 @@ public class GeminiApiService {
             1. Title: Must be a clear, simple task to accomplish.
             2. Description: A brief, easy-to-understand explanation of what to do.
             
-            CRITICAL REQUIREMENT:
+            CRITICAL REQUIREMENTS:
             You MUST break the topic into 3 to 5 tasks.
             For EVERY task, you MUST provide a "subtasks" array containing EXACTLY 3 to 5 actionable subtasks.
+            For EVERY task, you MUST also provide a "learningResources" array containing 2 to 4 learning resources.
+            - Include at least one popular YouTube video from a reputable, widely watched channel
+              (for example freeCodeCamp, Programming with Mosh, Traversy Media, Fireship, Net Ninja, CS50).
+            - Prefer videos that are genuinely popular and highly rated for this exact task.
+            - Only use a direct YouTube URL when you are confident the video exists.
+              If you are not certain, use a YouTube search URL such as
+              "https://www.youtube.com/results?search_query=react+useeffect+cleanup".
+            - You may add official documentation as an extra resource with "type": "DOCUMENTATION".
             
             Return the output EXACTLY in this JSON array structure (do NOT wrap in any other object, just the raw array):
             [
@@ -202,6 +228,16 @@ public class GeminiApiService {
                   "Learn what the dependency array is and how it controls execution",
                   "Identify and fix a common infinite loop caused by missing dependencies",
                   "Build a timer component that cleans up its interval on unmount"
+                ],
+                "learningResources": [
+                  {
+                    "title": "Learn React useEffect in 15 Minutes",
+                    "channel": "Programming with Mosh",
+                    "url": "https://www.youtube.com/watch?v=example",
+                    "type": "YOUTUBE_VIDEO",
+                    "description": "A popular, practical explanation of effects and cleanup.",
+                    "duration": "15 min"
+                  }
                 ]
               }
             ]
@@ -209,6 +245,46 @@ public class GeminiApiService {
 
         GeminiRequest request = buildJsonRequest(prompt);
         return executeCall(request, "topic tasks generation");
+    }
+
+    /**
+     * Generates materials for a checkpoint that was created before learning
+     * resources were part of the roadmap prompt.
+     */
+    public Mono<GeminiResponse> generateLearningResources(
+            String topic, String taskTitle, String taskDescription, String targetRole) {
+
+        String prompt = String.format("""
+            You are an expert technical mentor curating learning materials for one task.
+            Target role: %s
+            Current topic: %s
+            Task: %s
+            Task details: %s
+
+            Recommend 2 to 4 high-quality learning resources for this exact task.
+            - Include at least one popular YouTube video from a reputable, widely watched channel
+              (for example freeCodeCamp, Programming with Mosh, Traversy Media, Fireship, Net Ninja, CS50).
+            - Prefer videos that are genuinely popular and highly rated for this exact topic.
+            - Only use a direct YouTube URL when you are confident the video exists.
+              If you are not certain, use a YouTube search URL such as
+              "https://www.youtube.com/results?search_query=java+streams+tutorial".
+            - You may add official documentation with "type": "DOCUMENTATION".
+
+            Return ONLY a JSON array (do NOT wrap it in an object):
+            [
+              {
+                "title": "Java Streams Tutorial",
+                "channel": "Programming with Mosh",
+                "url": "https://www.youtube.com/watch?v=example",
+                "type": "YOUTUBE_VIDEO",
+                "description": "Why this material helps with the task.",
+                "duration": "20 min"
+              }
+            ]
+            """, targetRole, topic, taskTitle, taskDescription);
+
+        GeminiRequest request = buildJsonRequest(prompt);
+        return executeCall(request, "learning materials generation");
     }
 
     public Mono<GeminiResponse> chatWithRoadmap(String context, String message) {
@@ -256,6 +332,39 @@ public class GeminiApiService {
         } catch (Exception e) {
             log.error("Failed to parse Gemini Roadmap JSON: {}", e.getMessage());
             throw new RuntimeException("AI roadmap response was invalid", e);
+        }
+    }
+
+    /**
+     * Parses the learning-materials response. Some models wrap the array in an
+     * object despite the prompt, so both shapes are accepted.
+     */
+    @SuppressWarnings("unchecked")
+    public List<Map<String, Object>> parseLearningResources(String jsonString) {
+        if (jsonString == null || jsonString.isBlank()) {
+            return List.of();
+        }
+
+        String trimmed = jsonString.trim();
+        try {
+            if (trimmed.startsWith("{")) {
+                Map<String, Object> wrapper = parseJsonToMap(trimmed);
+                Object resources = wrapper.get("learningResources");
+                if (resources == null) resources = wrapper.get("learning_resources");
+                if (resources == null) resources = wrapper.get("resources");
+                if (resources instanceof List<?> list) {
+                    return list.stream()
+                            .filter(Map.class::isInstance)
+                            .map(item -> (Map<String, Object>) item)
+                            .toList();
+                }
+                return List.of();
+            }
+
+            return objectMapper.readValue(trimmed, new TypeReference<List<Map<String, Object>>>() {});
+        } catch (Exception e) {
+            log.error("Failed to parse Gemini learning materials JSON: {}", e.getMessage());
+            return List.of();
         }
     }
 
