@@ -11,6 +11,7 @@ import com.skillsync.skillsync_ai.todo.dto.SubtaskDto;
 public record RoadmapGeneratedEvent(
         UUID userId,
         UUID roadmapId,
+        UUID sessionId,
         String roadmapTitle,
         List<CheckpointPayload> checkpoints
 ) {

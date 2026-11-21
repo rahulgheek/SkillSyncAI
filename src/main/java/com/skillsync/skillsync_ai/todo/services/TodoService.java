@@ -36,11 +36,18 @@ public class TodoService {
     // ==========================================
 
     @Transactional(readOnly = true)
-    public Page<TodoResponse> getUserTodos(UUID userId, TodoStatus status, Pageable pageable) {
-        if (status != null) {
-            return todoRepository.findAllByUserIdAndStatus(userId, status, pageable).map(this::mapToResponse);
+    public Page<TodoResponse> getUserTodos(UUID userId, UUID sessionId, TodoStatus status, Pageable pageable) {
+        Page<Todo> todos;
+        if (sessionId != null) {
+            todos = status != null
+                    ? todoRepository.findAllByUserIdAndRoadmapSessionIdAndStatus(userId, sessionId, status, pageable)
+                    : todoRepository.findAllByUserIdAndRoadmapSessionId(userId, sessionId, pageable);
+        } else {
+            todos = status != null
+                    ? todoRepository.findAllByUserIdAndStatus(userId, status, pageable)
+                    : todoRepository.findAllByUserId(userId, pageable);
         }
-        return todoRepository.findAllByUserId(userId, pageable).map(this::mapToResponse);
+        return todos.map(TodoResponse::from);
     }
 
     @Transactional
@@ -135,6 +142,7 @@ public class TodoService {
                     .status(TodoStatus.PENDING)
                     .dueDate(cp.dueDate()) // AI dictates the schedule
                     .relatedEntityId(cp.checkpointId())
+                    .roadmapSessionId(event.sessionId())
                     .sourceTitle("Roadmap: " + event.roadmapTitle())
                     .subtasks(cp.subtasks())
                     .build();
@@ -164,9 +172,7 @@ public class TodoService {
     }
 
     private TodoResponse mapToResponse(Todo t) {
-        return new TodoResponse(t.getId(), t.getTitle(), t.getDescription(),
-                t.getStatus(), t.getPriority(), t.getDueDate(), t.getCompletedAt(),
-                t.getRelatedEntityId(), t.getSourceTitle(), t.getCreatedAt(), t.getSubtasks());
+        return TodoResponse.from(t);
     }
 
     @Transactional

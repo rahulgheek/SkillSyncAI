@@ -48,9 +48,18 @@ public class RoadmapController {
     public ResponseEntity<ApiResponse<Roadmap>> generateCustomRoadmap(
             @AuthenticationPrincipal User currentUser,
             @RequestBody CustomRoadmapRequest request) {
+
+        com.skillsync.skillsync_ai.ai.dto.CreateRoadmapSessionRequest sessionRequest =
+                new com.skillsync.skillsync_ai.ai.dto.CreateRoadmapSessionRequest(
+                        null,
+                        request.targetRole(),
+                        request.currentKnowledge(),
+                        request.knowledgeGaps(),
+                        null);
+
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("Custom AI Roadmap generated successfully",
-                        roadmapService.generateCustomRoadmap(currentUser.getId(), request)));
+                        roadmapService.generateCustomRoadmap(currentUser.getId(), sessionRequest)));
     }
 
     public record RoadmapChatRequest(String message) {}

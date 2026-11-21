@@ -16,4 +16,10 @@ public class NotificationTemplates {
     public static String messageProjectPublished(String projectTitle) {
         return String.format("Your project '%s' is now live and recruiting.", projectTitle);
     }
+
+    public static final String TITLE_MATCHING_READY = "AI Recommendations Ready";
+    public static String messageMatchingReady(int candidateCount) {
+        return String.format("We ranked %d match%s for you. Open your dashboard to review them.",
+                candidateCount, candidateCount == 1 ? "" : "es");
+    }
 }

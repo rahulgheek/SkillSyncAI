@@ -1,18 +1,29 @@
 package com.skillsync.skillsync_ai.ai.services;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.skillsync.skillsync_ai.ai.AiMatchingException;
 import com.skillsync.skillsync_ai.ai.AiMatchingGateway;
+import com.skillsync.skillsync_ai.common.enums.RecommendationConfidence;
 import com.skillsync.skillsync_ai.common.events.CandidateProfileForAi;
-import com.skillsync.skillsync_ai.common.events.CompatibilityBatchScoredEvent;
+import com.skillsync.skillsync_ai.common.events.ProjectProfileForAi;
+import com.skillsync.skillsync_ai.matching.services.DeterministicMatchScore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
+/**
+ * Groq-backed re-ranker. It only receives the shortlist that the SQL query has
+ * already produced, and it never persists or publishes events: the matching
+ * worker owns both so the whole run has one clear transaction boundary.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -20,109 +31,143 @@ public class BatchSkillGapAnalyzer implements AiMatchingGateway {
 
     private final GroqApiService groqApiService;
     private final RecommendationPromptFactory promptFactory;
-    private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
-    // Strict record mapping to replace Maps
-    public record GroqCandidateScore(UUID userId, java.math.BigDecimal semanticScore, String confidence,List<String> matchedSkills, String rationale) {}
-    public record GroqBatchResponse(List<GroqCandidateScore> matches) {}
+    public record GroqCandidateScore(
+            UUID userId,
+            BigDecimal semanticScore,
+            String confidence,
+            List<String> matchedSkills,
+            String rationale) {
+    }
+
+    public record GroqBatchResponse(List<GroqCandidateScore> matches) {
+    }
+
+    public record GroqProjectScore(
+            UUID projectId,
+            BigDecimal semanticScore,
+            String confidence,
+            List<String> matchedSkills,
+            String rationale) {
+    }
+
+    public record GroqProjectBatchResponse(List<GroqProjectScore> matches) {
+    }
 
     @Override
-    @org.springframework.scheduling.annotation.Async
-    public void analyzeCandidatesBatch(UUID projectId, String requiredSkillsJson, List<CandidateProfileForAi> candidates) {
-        log.info("AI Gateway processing batch of {} candidates for Project: {}", candidates.size(), projectId);
+    public List<ScoredCandidate> scoreCandidates(
+            UUID projectId, String requiredSkillsJson, List<CandidateProfileForAi> candidates) {
+
+        if (candidates == null || candidates.isEmpty()) {
+            return List.of();
+        }
+
+        String prompt = promptFactory.buildBatchMatchPrompt(requiredSkillsJson, candidates);
+        String response = callGroq(prompt, "project " + projectId);
 
         try {
-            log.info("STEP 1 - Prompt created");
-            String prompt = promptFactory.buildBatchMatchPrompt(requiredSkillsJson, candidates);
+            GroqBatchResponse parsed = objectMapper.readValue(response, GroqBatchResponse.class);
+            Set<UUID> allowed = candidates.stream()
+                    .map(CandidateProfileForAi::userId)
+                    .collect(Collectors.toSet());
 
-            log.info("Candidate count = {}", candidates.size());
-            log.info("Prompt length = {}", prompt.length());
-
-            log.info("STEP 2 - Calling Groq API");
-            String groqResponse = groqApiService.analyzeBatchMatch(prompt).block();
-            log.info("STEP 3 - Groq returned");
-
-            if (groqResponse == null || groqResponse.isBlank()) {
-                log.error("Groq batch analysis returned empty response.");
-                return;
-            }
-            
-            log.info("Response = {}", groqResponse);
-
-            log.info("STEP 4 - Parsing JSON");
-            // Strictly parse into the record list
-            GroqBatchResponse parsedResponse = objectMapper.readValue(
-                    groqResponse,
-                    GroqBatchResponse.class
-            );
-            List<GroqCandidateScore> parsedScores = parsedResponse.matches() != null ? parsedResponse.matches() : java.util.Collections.emptyList();
-            log.info("STEP 5 - Parsed");
-
-            List<CompatibilityBatchScoredEvent.IndividualCandidateScore> mappedScores = parsedScores.stream()
-                    .map(score -> new CompatibilityBatchScoredEvent.IndividualCandidateScore(
+            List<ScoredCandidate> scores = safeList(parsed.matches()).stream()
+                    // Never trust an id that was not in the shortlist.
+                    .filter(score -> score.userId() != null && allowed.contains(score.userId()))
+                    .map(score -> new ScoredCandidate(
                             score.userId(),
-                            score.semanticScore() != null ? score.semanticScore() : java.math.BigDecimal.ZERO,
-                            score.confidence() != null ? com.skillsync.skillsync_ai.common.enums.RecommendationConfidence.valueOf(score.confidence().toUpperCase()) : com.skillsync.skillsync_ai.common.enums.RecommendationConfidence.LOW,
-                            score.matchedSkills() != null ? score.matchedSkills() : java.util.Collections.emptyList(),
-                            score.rationale() != null ? score.rationale() : "No rationale provided."))
+                            DeterministicMatchScore.clamp(score.semanticScore()),
+                            parseConfidence(score.confidence()),
+                            score.matchedSkills() == null ? List.of() : score.matchedSkills(),
+                            score.rationale() == null || score.rationale().isBlank()
+                                    ? "No rationale provided."
+                                    : score.rationale()))
                     .toList();
 
-            eventPublisher.publishEvent(new CompatibilityBatchScoredEvent(
-                    projectId,
-                    RecommendationPromptFactory.CURRENT_VERSION,
-                    java.time.Instant.now(), // Pass the generation timestamp
-                    mappedScores
-            ));
-            
-            log.info("STEP 6 - Event published");
+            if (scores.isEmpty()) {
+                throw new AiMatchingException("Groq returned no usable candidate scores");
+            }
 
+            log.info("Groq scored {} of {} shortlisted candidates for project {}",
+                    scores.size(), candidates.size(), projectId);
+            return scores;
+        } catch (AiMatchingException e) {
+            throw e;
         } catch (Exception e) {
-            log.error("Failed to execute batch AI matching for project {}", projectId, e);
+            throw new AiMatchingException("Failed to parse Groq candidate response", e);
         }
     }
 
-    public record GroqProjectScore(UUID projectId, java.math.BigDecimal semanticScore, String confidence, List<String> matchedSkills, String rationale) {}
-    public record GroqProjectBatchResponse(List<GroqProjectScore> matches) {}
-
     @Override
-    @org.springframework.scheduling.annotation.Async
-    public void analyzeProjectsBatch(UUID studentUserId, String studentProfileJson, List<com.skillsync.skillsync_ai.common.events.ProjectProfileForAi> projects) {
-        log.info("AI Gateway processing batch of {} projects for Student: {}", projects.size(), studentUserId);
+    public List<ScoredProject> scoreProjects(
+            UUID studentUserId, String studentProfileJson, List<ProjectProfileForAi> projects) {
+
+        if (projects == null || projects.isEmpty()) {
+            return List.of();
+        }
+
+        String prompt = promptFactory.buildBatchProjectsPrompt(studentProfileJson, projects);
+        String response = callGroq(prompt, "student " + studentUserId);
 
         try {
-            String prompt = promptFactory.buildBatchProjectsPrompt(studentProfileJson, projects);
+            GroqProjectBatchResponse parsed = objectMapper.readValue(response, GroqProjectBatchResponse.class);
+            Set<UUID> allowed = projects.stream()
+                    .map(ProjectProfileForAi::projectId)
+                    .collect(Collectors.toSet());
 
-            String groqResponse = groqApiService.analyzeBatchMatch(prompt).block();
-
-            if (groqResponse == null || groqResponse.isBlank()) {
-                log.error("Groq batch analysis returned empty response.");
-                return;
-            }
-
-            GroqProjectBatchResponse parsedResponse = objectMapper.readValue(
-                    groqResponse,
-                    GroqProjectBatchResponse.class
-            );
-            List<GroqProjectScore> parsedScores = parsedResponse.matches() != null ? parsedResponse.matches() : java.util.Collections.emptyList();
-
-            List<com.skillsync.skillsync_ai.common.events.StudentProjectsBatchScoredEvent.IndividualProjectScore> mappedScores = parsedScores.stream()
-                    .map(score -> new com.skillsync.skillsync_ai.common.events.StudentProjectsBatchScoredEvent.IndividualProjectScore(
+            List<ScoredProject> scores = safeList(parsed.matches()).stream()
+                    .filter(score -> score.projectId() != null && allowed.contains(score.projectId()))
+                    .map(score -> new ScoredProject(
                             score.projectId(),
-                            score.semanticScore() != null ? score.semanticScore() : java.math.BigDecimal.ZERO,
-                            score.confidence() != null ? com.skillsync.skillsync_ai.common.enums.RecommendationConfidence.valueOf(score.confidence().toUpperCase()) : com.skillsync.skillsync_ai.common.enums.RecommendationConfidence.LOW,
-                            score.matchedSkills() != null ? score.matchedSkills() : java.util.Collections.emptyList(),
-                            score.rationale() != null ? score.rationale() : "No rationale provided."))
+                            DeterministicMatchScore.clamp(score.semanticScore()),
+                            parseConfidence(score.confidence()),
+                            score.matchedSkills() == null ? List.of() : score.matchedSkills(),
+                            score.rationale() == null || score.rationale().isBlank()
+                                    ? "No rationale provided."
+                                    : score.rationale()))
                     .toList();
 
-            eventPublisher.publishEvent(new com.skillsync.skillsync_ai.common.events.StudentProjectsBatchScoredEvent(
-                    studentUserId,
-                    RecommendationPromptFactory.CURRENT_VERSION,
-                    mappedScores
-            ));
+            if (scores.isEmpty()) {
+                throw new AiMatchingException("Groq returned no usable project scores");
+            }
 
+            log.info("Groq scored {} of {} shortlisted projects for student {}",
+                    scores.size(), projects.size(), studentUserId);
+            return scores;
+        } catch (AiMatchingException e) {
+            throw e;
         } catch (Exception e) {
-            log.error("Failed to execute batch AI matching for student {}", studentUserId, e);
+            throw new AiMatchingException("Failed to parse Groq project response", e);
         }
+    }
+
+    private String callGroq(String prompt, String subject) {
+        try {
+            String response = groqApiService.analyzeBatchMatch(prompt).block();
+            if (response == null || response.isBlank()) {
+                throw new AiMatchingException("Groq returned an empty response for " + subject);
+            }
+            return response;
+        } catch (AiMatchingException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new AiMatchingException("Groq call failed for " + subject, e);
+        }
+    }
+
+    private RecommendationConfidence parseConfidence(String value) {
+        if (value == null || value.isBlank()) {
+            return RecommendationConfidence.LOW;
+        }
+        try {
+            return RecommendationConfidence.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return RecommendationConfidence.LOW;
+        }
+    }
+
+    private <T> List<T> safeList(List<T> values) {
+        return values == null ? Collections.emptyList() : values;
     }
 }

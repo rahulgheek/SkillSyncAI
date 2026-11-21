@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -22,6 +23,17 @@ public interface TodoRepository extends JpaRepository<Todo, UUID> {
 
     // Filter by status (e.g., show only PENDING or IN_PROGRESS tasks)
     Page<Todo> findAllByUserIdAndStatus(UUID userId, TodoStatus status, Pageable pageable);
+
+    // Filter the task list down to one AI roadmap session
+    Page<Todo> findAllByUserIdAndRoadmapSessionId(UUID userId, UUID roadmapSessionId, Pageable pageable);
+
+    Page<Todo> findAllByUserIdAndRoadmapSessionIdAndStatus(
+            UUID userId, UUID roadmapSessionId, TodoStatus status, Pageable pageable);
+
+    List<Todo> findAllByUserIdAndRoadmapSessionIdOrderByDueDateAsc(UUID userId, UUID roadmapSessionId);
+
+    List<Todo> findAllByUserIdAndRoadmapSessionIdAndStatusOrderByDueDateAsc(
+            UUID userId, UUID roadmapSessionId, TodoStatus status);
 
     // Secure fetch for single operations
     Optional<Todo> findByIdAndUserId(UUID id, UUID userId);
@@ -41,9 +53,34 @@ public interface TodoRepository extends JpaRepository<Todo, UUID> {
     @Query("SELECT t.status AS status, COUNT(t) AS count FROM Todo t WHERE t.userId = :userId GROUP BY t.status")
     List<TodoStatusCount> countByStatusForUser(@Param("userId") UUID userId);
 
+    /**
+     * One grouped query for the dashboard/session list instead of two count
+     * queries per session.
+     */
+    @Query("""
+            SELECT t.roadmapSessionId AS sessionId,
+                   COUNT(t) AS total,
+                   SUM(CASE WHEN t.status = :completedStatus THEN 1 ELSE 0 END) AS completed
+            FROM Todo t
+            WHERE t.userId = :userId AND t.roadmapSessionId IN :sessionIds
+            GROUP BY t.roadmapSessionId
+            """)
+    List<SessionTaskCount> countTasksBySession(
+            @Param("userId") UUID userId,
+            @Param("sessionIds") Collection<UUID> sessionIds,
+            @Param("completedStatus") TodoStatus completedStatus);
+
     interface TodoStatusCount {
         TodoStatus getStatus();
 
         long getCount();
+    }
+
+    interface SessionTaskCount {
+        UUID getSessionId();
+
+        long getTotal();
+
+        Long getCompleted();
     }
 }

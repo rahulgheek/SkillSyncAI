@@ -23,7 +23,11 @@ import java.security.Principal;
         name = "users",
         schema = "auth",
         uniqueConstraints = @UniqueConstraint(name = "uk_users_email", columnNames = "email"),
-        indexes = @Index(name = "idx_users_college", columnList = "college_id")
+        indexes = {
+                @Index(name = "idx_users_college", columnList = "college_id"),
+                // Candidate shortlist query: college + role, soft-delete filtered.
+                @Index(name = "idx_users_college_role", columnList = "college_id, role")
+        }
 )
 @Getter
 @Setter

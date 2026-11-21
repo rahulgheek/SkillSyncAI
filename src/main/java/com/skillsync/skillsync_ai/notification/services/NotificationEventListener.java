@@ -1,20 +1,23 @@
 package com.skillsync.skillsync_ai.notification.services;
 
 import com.skillsync.skillsync_ai.common.events.ProjectPublishedEvent;
+import com.skillsync.skillsync_ai.common.events.RecommendationsReadyEvent;
 import com.skillsync.skillsync_ai.common.events.ResumeAnalysisCompletedEvent;
 import com.skillsync.skillsync_ai.common.events.TeamMemberAcceptedEvent;
+import com.skillsync.skillsync_ai.notification.dto.NotificationResponse;
 import com.skillsync.skillsync_ai.notification.entity.Notification;
 import com.skillsync.skillsync_ai.notification.entity.enums.NotificationType;
+import com.skillsync.skillsync_ai.notification.events.NotificationCreatedEvent;
 import com.skillsync.skillsync_ai.notification.repo.NotificationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.kafka.annotation.KafkaListener;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.skillsync.skillsync_ai.common.config.KafkaConfig;
 import com.skillsync.skillsync_ai.common.events.CertificateUploadedEvent;
 import com.skillsync.skillsync_ai.common.events.ApplicationSubmittedEvent;
 import com.skillsync.skillsync_ai.common.events.InvitationSentEvent;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,8 +30,7 @@ import java.util.UUID;
 public class NotificationEventListener {
 
     private final NotificationRepository notificationRepository;
-    private final SseConnectionService sseConnectionService;
-    private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     // --- The DRY Helper Method ---
     private void createNotification(UUID userId, NotificationType type, String title, String message, UUID relatedEntityId) {
@@ -40,13 +42,22 @@ public class NotificationEventListener {
                 .relatedEntityId(relatedEntityId)
                 .build();
         Notification saved = notificationRepository.save(notification);
-        
-        // Dispatch to SSE if the user is connected
-        try {
-            sseConnectionService.sendEventToUser(userId, "notification", saved);
-        } catch (Exception e) {
-            log.warn("Failed to dispatch SSE for notification {}", saved.getId());
-        }
+
+        // The push listener only fires after this transaction commits, so a
+        // rollback never leaves a phantom notification on the client.
+        eventPublisher.publishEvent(new NotificationCreatedEvent(userId, toResponse(saved)));
+    }
+
+    private NotificationResponse toResponse(Notification notification) {
+        return new NotificationResponse(
+                notification.getId(),
+                notification.getType(),
+                notification.getTitle(),
+                notification.getMessage(),
+                notification.isRead(),
+                notification.getRelatedEntityId(),
+                notification.getCreatedAt()
+        );
     }
 
     // --- The Listeners ---
@@ -131,6 +142,19 @@ public class NotificationEventListener {
                 NotificationType.SYSTEM_ALERT, // or a new type like INVITATION_RECEIVED
                 "New Project Invitation",
                 event.inviterName() + " has invited you to join their project '" + event.projectTitle() + "'.",
+                event.projectId()
+        );
+    }
+
+    @ApplicationModuleListener
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void onRecommendationsReady(RecommendationsReadyEvent event) {
+        log.info("Creating notification for ready {} recommendations for user {}", event.scope(), event.userId());
+        createNotification(
+                event.userId(),
+                NotificationType.MATCHING_READY,
+                NotificationTemplates.TITLE_MATCHING_READY,
+                NotificationTemplates.messageMatchingReady(event.candidateCount()),
                 event.projectId()
         );
     }

@@ -43,7 +43,10 @@ spring:
       mode: always
   jpa:
     hibernate:
-      ddl-auto: validate
+      # `update` lets Hibernate create the new matching job table and indexes.
+      # For a production deployment with multiple instances, replace this with
+      # versioned migrations once the schema stabilizes.
+      ddl-auto: ${DDL_AUTO:update}
     show-sql: false
     properties:
       hibernate:
@@ -115,6 +118,26 @@ groq:
   api:
     url: "https://api.groq.com/openai/v1/chat/completions"
     key: ${GROQ_API_KEY}
+    # The model is configurable so the scoring model can be swapped without a
+    # redeploy. Structured scoring does not need the largest model.
+    model: ${GROQ_API_MODEL:llama-3.1-70b-versatile}
+    timeout-seconds: ${GROQ_API_TIMEOUT_SECONDS:20}
+    max-retries: ${GROQ_API_MAX_RETRIES:1}
+
+matching:
+  shortlist:
+    # Maximum number of candidates returned by the single SQL shortlist query.
+    max-candidates: ${MATCHING_SHORTLIST_MAX_CANDIDATES:50}
+  ai:
+    # Only this many shortlisted candidates are sent to the LLM for re-ranking.
+    max-candidates: ${MATCHING_AI_MAX_CANDIDATES:20}
+    # Only this many shortlisted projects are sent to the LLM for a student.
+    max-projects: ${MATCHING_AI_MAX_PROJECTS:10}
+    # Re-use a READY result when the project inputs have not changed.
+    cooldown-minutes: ${MATCHING_AI_COOLDOWN_MINUTES:10}
+  job:
+    # A RUNNING job older than this is treated as crashed and can be retried.
+    stale-minutes: ${MATCHING_JOB_STALE_MINUTES:10}
 
 cacheify:
   base-url: ${CACHEIFY_BASE_URL:https://cacheify.bot-keep.xyz}

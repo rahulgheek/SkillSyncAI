@@ -11,23 +11,23 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * REST history and state changes for notifications.
+ *
+ * <p>Live delivery happens exclusively over STOMP at
+ * {@code /user/queue/notifications}. After a reconnect the client should call
+ * this REST endpoint to catch up on anything missed while offline.</p>
+ */
 @RestController
 @RequestMapping("/api/v1/notifications")
 @RequiredArgsConstructor
 public class NotificationController {
 
     private final NotificationService notificationService;
-    private final com.skillsync.skillsync_ai.notification.services.SseConnectionService sseConnectionService;
-
-    @GetMapping(value = "/stream", produces = org.springframework.http.MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter streamNotifications(@AuthenticationPrincipal User currentUser) {
-        return sseConnectionService.createEmitter(currentUser.getId());
-    }
 
     @GetMapping
     public ResponseEntity<ApiResponse<Page<NotificationResponse>>> getMyNotifications(

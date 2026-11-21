@@ -5,6 +5,7 @@ import com.skillsync.skillsync_ai.ai.entity.enums.RoadmapStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -19,4 +20,12 @@ public interface RoadmapRepository extends JpaRepository<Roadmap, UUID> {
 
     // Safely finds a specific roadmap, ensuring the user actually owns it
     Optional<Roadmap> findByIdAndUserId(UUID id, UUID userId);
+
+    Optional<Roadmap> findFirstByUserIdAndStatusOrderByCreatedAtDesc(UUID userId, RoadmapStatus status);
+
+    List<Roadmap> findAllBySessionIdOrderByCreatedAtAsc(UUID sessionId);
+
+    List<Roadmap> findAllBySessionIdIn(Collection<UUID> sessionIds);
+
+    Optional<Roadmap> findFirstBySessionIdOrderByCreatedAtAsc(UUID sessionId);
 }

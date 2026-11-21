@@ -41,6 +41,11 @@ public class Roadmap {
     private UUID studentProfileId;
 
     @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "session_id")
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private RoadmapSession session;
+
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "skill_gap_analysis_id")
     private SkillGapAnalysis skillGapAnalysis;
 

@@ -96,10 +96,22 @@ public class GeminiApiService {
         String prompt = String.format("""
             You are an expert technical mentor. A student is missing the following skills required for a project: %s.
             Generate a step-by-step learning roadmap for them to acquire these skills.
-            Return the output EXACTLY in this JSON array structure:
+
+            CRITICAL REQUIREMENT:
+            Generate 3 to 5 tasks.
+            For EVERY task you MUST provide a "subtasks" array containing EXACTLY 3 to 5 actionable subtasks.
+
+            Return the output EXACTLY in this JSON array structure (do NOT wrap in any other object):
             [
-              { "title": "Understand the Basics", "description": "Short explanation of what to learn first." },
-              { "title": "Build a small project", "description": "Hands-on implementation details." }
+              {
+                "title": "Understand the Basics",
+                "description": "Short explanation of what to learn first.",
+                "subtasks": [
+                  "Read the official documentation overview",
+                  "Complete a beginner tutorial",
+                  "Write a small example from scratch"
+                ]
+              }
             ]
             """, missingSkills);
 

@@ -47,6 +47,14 @@ public class ProjectRecommendation {
     @Column(name = "semantic_score", nullable = false, precision = 5, scale = 2)
     private BigDecimal semanticScore; // Fix 2: Renamed from aiScore
 
+    /**
+     * Deterministic 0-100 score computed from canonical skill overlap before
+     * the LLM is called. It grounds the final ranking and is used as the
+     * fallback when the LLM is unavailable.
+     */
+    @Column(name = "deterministic_score", precision = 5, scale = 2)
+    private BigDecimal deterministicScore;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private RecommendationConfidence confidence; // Fix 3: HIGH, MEDIUM, LOW

@@ -8,5 +8,6 @@ public enum NotificationType {
     INVITATION_RESPONDED,
     RESUME_ANALYZED,
     ROADMAP_GENERATED,
+    MATCHING_READY,
     SYSTEM_ALERT
 }

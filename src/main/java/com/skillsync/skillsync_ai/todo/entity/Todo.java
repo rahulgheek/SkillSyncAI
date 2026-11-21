@@ -20,7 +20,8 @@ import com.skillsync.skillsync_ai.todo.dto.SubtaskDto;
 @Entity
 @Table(name = "todos", schema = "todo", indexes = {
         @Index(name = "idx_todo_user_due", columnList = "user_id, due_date"),
-        @Index(name = "idx_todo_user_status", columnList = "user_id, status")
+        @Index(name = "idx_todo_user_status", columnList = "user_id, status"),
+        @Index(name = "idx_todo_user_session", columnList = "user_id, roadmap_session_id")
 })
 @Getter
 @Setter
@@ -64,6 +65,10 @@ public class Todo {
     // Allows linking this task to an AI Checkpoint ID, Project ID, etc.
     @Column(name = "related_entity_id")
     private UUID relatedEntityId;
+
+    // Cross-module reference to the AI roadmap session that produced this task.
+    @Column(name = "roadmap_session_id")
+    private UUID roadmapSessionId;
 
     @Column(name = "source_title", length = 150)
     private String sourceTitle;

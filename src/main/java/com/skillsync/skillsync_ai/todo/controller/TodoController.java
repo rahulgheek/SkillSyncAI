@@ -28,11 +28,12 @@ public class TodoController {
     @GetMapping
     public ResponseEntity<ApiResponse<Page<TodoResponse>>> getMyTodos(
             @AuthenticationPrincipal User currentUser,
+            @RequestParam(required = false) UUID sessionId,
             @RequestParam(required = false) TodoStatus status,
             @PageableDefault(size = 20, sort = "dueDate") Pageable pageable) {
 
         return ResponseEntity.ok(ApiResponse.success("Tasks retrieved successfully",
-                todoService.getUserTodos(currentUser.getId(), status, pageable)));
+                todoService.getUserTodos(currentUser.getId(), sessionId, status, pageable)));
     }
 
     @PostMapping

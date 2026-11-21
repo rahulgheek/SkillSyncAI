@@ -20,7 +20,10 @@ import java.util.UUID;
         uniqueConstraints = @UniqueConstraint(name = "uk_student_skills_profile_skill", columnNames = {"student_profile_id", "skill_id"}),
         indexes = {
                 @Index(name = "idx_student_skills_profile", columnList = "student_profile_id"),
-                @Index(name = "idx_student_skills_skill", columnList = "skill_id")
+                @Index(name = "idx_student_skills_skill", columnList = "skill_id"),
+                // Shortlist join: skill first, then profile. The reverse order
+                // makes PostgreSQL scan every profile that owns a skill.
+                @Index(name = "idx_student_skills_skill_profile", columnList = "skill_id, student_profile_id")
         }
 )
 @Getter
