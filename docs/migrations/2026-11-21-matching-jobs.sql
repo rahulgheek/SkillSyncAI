@@ -52,10 +52,15 @@ ALTER TABLE matching.project_recommendations
 -- ---------------------------------------------------------------------------
 -- 3. Shortlist indexes
 -- ---------------------------------------------------------------------------
+-- Hibernate may already have created these indexes from the entity
+-- annotations, without the partial predicate. Recreate them so the shortlist
+-- query only indexes live rows.
+DROP INDEX IF EXISTS auth.idx_users_college_role;
 CREATE INDEX IF NOT EXISTS idx_users_college_role
     ON auth.users (college_id, role)
     WHERE deleted_at IS NULL;
 
+DROP INDEX IF EXISTS profile.idx_student_skills_skill_profile;
 CREATE INDEX IF NOT EXISTS idx_student_skills_skill_profile
     ON profile.student_skills (skill_id, student_profile_id)
     WHERE deleted_at IS NULL;

@@ -45,10 +45,18 @@ ALTER TABLE ai.roadmaps
 
 DO $$
 BEGIN
+    -- Match any FK on this column, not just the name below: Hibernate may
+    -- already have created the constraint with a generated name.
     IF NOT EXISTS (
         SELECT 1
-        FROM pg_constraint
-        WHERE conname = 'fk_roadmaps_session'
+        FROM pg_constraint c
+        JOIN pg_attribute a
+          ON a.attrelid = c.conrelid
+         AND a.attnum = ANY (c.conkey)
+        WHERE c.contype = 'f'
+          AND c.conrelid = 'ai.roadmaps'::regclass
+          AND c.confrelid = 'ai.roadmap_sessions'::regclass
+          AND a.attname = 'session_id'
     ) THEN
         ALTER TABLE ai.roadmaps
             ADD CONSTRAINT fk_roadmaps_session
