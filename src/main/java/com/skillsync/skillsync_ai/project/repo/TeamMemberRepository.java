@@ -24,6 +24,27 @@ public interface TeamMemberRepository extends JpaRepository<TeamMember, UUID> {
 
     long countByProjectIdAndStatus(UUID projectId, MemberStatus status);
 
+    long countByProjectIdAndProjectRoleIdAndStatus(UUID projectId, UUID projectRoleId, MemberStatus status);
+
+    boolean existsByProjectIdAndUserIdAndStatus(UUID projectId, UUID userId, MemberStatus status);
+
+    /**
+     * Actual active headcount per role. Used instead of the denormalised
+     * filledCount so the management screen and capacity checks cannot drift
+     * after a partial failure or manual data fix.
+     */
+    @Query("""
+            SELECT tm.projectRole.id, COUNT(tm)
+            FROM TeamMember tm
+            WHERE tm.project.id = :projectId
+              AND tm.status = :status
+              AND tm.projectRole IS NOT NULL
+            GROUP BY tm.projectRole.id
+            """)
+    List<Object[]> countByProjectIdAndStatusGroupByRole(
+            @Param("projectId") UUID projectId,
+            @Param("status") MemberStatus status);
+
     @Query("SELECT DISTINCT p FROM TeamMember tm JOIN tm.project p WHERE tm.userId = :userId AND tm.status = :status")
     List<Project> findActiveProjectsByUserId(@Param("userId") UUID userId, @Param("status") MemberStatus status);
 }

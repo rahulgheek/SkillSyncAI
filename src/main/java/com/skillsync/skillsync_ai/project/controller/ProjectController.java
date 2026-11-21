@@ -70,6 +70,22 @@ public class ProjectController {
                 projectService.closeRecruitment(currentUser.getId(), projectId)));
     }
 
+    @PostMapping("/{projectId}/reopen")
+    public ResponseEntity<ApiResponse<ProjectResponse>> reopenRecruitment(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable UUID projectId) {
+        return ResponseEntity.ok(ApiResponse.success("Project recruitment reopened",
+                projectService.reopenRecruitment(currentUser.getId(), projectId)));
+    }
+
+    @GetMapping("/{projectId}/management")
+    public ResponseEntity<ApiResponse<ProjectManagementResponse>> getProjectManagement(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable UUID projectId) {
+        return ResponseEntity.ok(ApiResponse.success("Project management summary retrieved",
+                projectService.getProjectManagement(currentUser.getId(), projectId)));
+    }
+
     @GetMapping("/{projectId}")
     public ResponseEntity<ApiResponse<ProjectDetailsResponse>> getProjectDetails(@PathVariable UUID projectId) {
         return ResponseEntity.ok(ApiResponse.success("Project retrieved", projectService.getProjectDetails(projectId)));
@@ -106,9 +122,50 @@ public class ProjectController {
         return ResponseEntity.ok(ApiResponse.success("Project roles retrieved", projectService.getProjectRoles(projectId)));
     }
 
+    @PatchMapping("/{projectId}/roles/{roleId}")
+    public ResponseEntity<ApiResponse<ProjectRoleResponse>> updateProjectRole(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable UUID projectId,
+            @PathVariable UUID roleId,
+            @Valid @RequestBody UpdateProjectRoleRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Project role updated",
+                projectService.updateProjectRole(currentUser.getId(), projectId, roleId, request)));
+    }
+
+    @DeleteMapping("/{projectId}/roles/{roleId}")
+    public ResponseEntity<ApiResponse<Void>> deleteProjectRole(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable UUID projectId,
+            @PathVariable UUID roleId) {
+        projectService.deleteProjectRole(currentUser.getId(), projectId, roleId);
+        return ResponseEntity.ok(ApiResponse.success("Project role deleted", null));
+    }
+
     @GetMapping("/{projectId}/members")
     public ResponseEntity<ApiResponse<List<TeamMemberResponse>>> getProjectMembers(@PathVariable UUID projectId) {
         return ResponseEntity.ok(ApiResponse.success("Project members retrieved", projectService.getProjectMembers(projectId)));
+    }
+
+    @PostMapping("/{projectId}/members")
+    public ResponseEntity<ApiResponse<TeamMemberResponse>> addMember(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable UUID projectId,
+            @Valid @RequestBody AddTeamMemberRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Member added to project",
+                        projectService.addMemberDirectly(
+                                currentUser.getId(), projectId, request.userId(), request.roleId())));
+    }
+
+    @PatchMapping("/{projectId}/members/{memberUserId}/role")
+    public ResponseEntity<ApiResponse<TeamMemberResponse>> updateMemberRole(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable UUID projectId,
+            @PathVariable UUID memberUserId,
+            @Valid @RequestBody UpdateTeamMemberRoleRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Member role updated",
+                projectService.updateMemberRole(
+                        currentUser.getId(), projectId, memberUserId, request.roleId())));
     }
 
     @DeleteMapping("/{projectId}/members/{memberUserId}")

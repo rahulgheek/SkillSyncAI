@@ -1,9 +1,14 @@
 package com.skillsync.skillsync_ai.notification.services;
 
+import com.skillsync.skillsync_ai.common.events.ApplicationDecidedEvent;
+import com.skillsync.skillsync_ai.common.events.InvitationRespondedEvent;
 import com.skillsync.skillsync_ai.common.events.ProjectPublishedEvent;
+import com.skillsync.skillsync_ai.common.events.ProjectRecruitmentStatusChangedEvent;
 import com.skillsync.skillsync_ai.common.events.RecommendationsReadyEvent;
 import com.skillsync.skillsync_ai.common.events.ResumeAnalysisCompletedEvent;
 import com.skillsync.skillsync_ai.common.events.TeamMemberAcceptedEvent;
+import com.skillsync.skillsync_ai.common.events.TeamMemberRemovedEvent;
+import com.skillsync.skillsync_ai.common.events.TeamMemberRoleChangedEvent;
 import com.skillsync.skillsync_ai.notification.dto.NotificationResponse;
 import com.skillsync.skillsync_ai.notification.entity.Notification;
 import com.skillsync.skillsync_ai.notification.entity.enums.NotificationType;
@@ -97,7 +102,7 @@ public class NotificationEventListener {
         log.info("Creating notification for Team Member Accepted on Project: {}", event.projectId());
         createNotification(
                 event.userId(),
-                NotificationType.APPLICATION_DECIDED,
+                NotificationType.TEAM_MEMBER_ADDED,
                 NotificationTemplates.TITLE_WELCOME_TEAM,
                 NotificationTemplates.messageWelcomeTeam(),
                 event.projectId()
@@ -126,7 +131,7 @@ public class NotificationEventListener {
         log.info("Creating notification for Application Submitted: {}", event.projectOwnerId());
         createNotification(
                 event.projectOwnerId(),
-                NotificationType.SYSTEM_ALERT, // or a new type like APPLICATION_RECEIVED
+                NotificationType.APPLICATION_RECEIVED,
                 "New Project Application",
                 event.applicantName() + " has applied to your project '" + event.projectTitle() + "'.",
                 event.projectId()
@@ -139,11 +144,88 @@ public class NotificationEventListener {
         log.info("Creating notification for Invitation Sent: {}", event.invitedUserId());
         createNotification(
                 event.invitedUserId(),
-                NotificationType.SYSTEM_ALERT, // or a new type like INVITATION_RECEIVED
+                NotificationType.INVITATION_RECEIVED,
                 "New Project Invitation",
                 event.inviterName() + " has invited you to join their project '" + event.projectTitle() + "'.",
                 event.projectId()
         );
+    }
+
+    @ApplicationModuleListener
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void onApplicationDecided(ApplicationDecidedEvent event) {
+        log.info("Creating notification for Application Decision: {}", event.applicationId());
+        createNotification(
+                event.applicantUserId(),
+                NotificationType.APPLICATION_DECIDED,
+                NotificationTemplates.TITLE_APPLICATION_DECIDED,
+                NotificationTemplates.messageApplicationDecided(event.projectTitle(), event.accepted()),
+                event.projectId()
+        );
+    }
+
+    @ApplicationModuleListener
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void onInvitationResponded(InvitationRespondedEvent event) {
+        log.info("Creating notification for Invitation Response: {}", event.invitationId());
+        createNotification(
+                event.projectOwnerId(),
+                NotificationType.INVITATION_RESPONDED,
+                NotificationTemplates.TITLE_INVITATION_RESPONDED,
+                NotificationTemplates.messageInvitationResponded(
+                        event.studentName(), event.projectTitle(), event.accepted()),
+                event.projectId()
+        );
+    }
+
+    @ApplicationModuleListener
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void onTeamMemberRemoved(TeamMemberRemovedEvent event) {
+        log.info("Creating notification for Team Member Removed on Project: {}", event.projectId());
+        createNotification(
+                event.userId(),
+                NotificationType.TEAM_MEMBER_REMOVED,
+                NotificationTemplates.TITLE_MEMBER_REMOVED,
+                NotificationTemplates.messageMemberRemoved(event.projectTitle(), event.removedByOwner()),
+                event.projectId()
+        );
+    }
+
+    @ApplicationModuleListener
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void onTeamMemberRoleChanged(TeamMemberRoleChangedEvent event) {
+        log.info("Creating notification for Team Member Role Change on Project: {}", event.projectId());
+        createNotification(
+                event.userId(),
+                NotificationType.TEAM_ROLE_CHANGED,
+                NotificationTemplates.TITLE_ROLE_CHANGED,
+                NotificationTemplates.messageRoleChanged(
+                        event.projectTitle(), event.oldRoleTitle(), event.newRoleTitle()),
+                event.projectId()
+        );
+    }
+
+    @ApplicationModuleListener
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void onProjectRecruitmentStatusChanged(ProjectRecruitmentStatusChangedEvent event) {
+        log.info("Creating notification for Project Recruitment Status on Project: {}", event.projectId());
+        if (event.full()) {
+            createNotification(
+                    event.projectOwnerId(),
+                    NotificationType.PROJECT_FULL,
+                    NotificationTemplates.TITLE_PROJECT_FULL,
+                    NotificationTemplates.messageProjectFull(event.projectTitle()),
+                    event.projectId()
+            );
+        } else {
+            createNotification(
+                    event.projectOwnerId(),
+                    NotificationType.PROJECT_REOPENED,
+                    NotificationTemplates.TITLE_PROJECT_REOPENED,
+                    NotificationTemplates.messageProjectReopened(event.projectTitle()),
+                    event.projectId()
+            );
+        }
     }
 
     @ApplicationModuleListener

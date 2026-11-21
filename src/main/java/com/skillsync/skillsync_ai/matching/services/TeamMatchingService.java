@@ -1,7 +1,8 @@
 package com.skillsync.skillsync_ai.matching.services;
 
-import com.skillsync.skillsync_ai.common.events.TeamMemberAcceptedEvent;
+import com.skillsync.skillsync_ai.common.events.ApplicationDecidedEvent;
 import com.skillsync.skillsync_ai.common.events.ApplicationSubmittedEvent;
+import com.skillsync.skillsync_ai.common.events.InvitationRespondedEvent;
 import com.skillsync.skillsync_ai.common.events.InvitationSentEvent;
 import com.skillsync.skillsync_ai.matching.dto.ApplicationResponse;
 import com.skillsync.skillsync_ai.matching.dto.InvitationResponse;
@@ -11,13 +12,18 @@ import com.skillsync.skillsync_ai.matching.entity.enums.ApplicationStatus;
 import com.skillsync.skillsync_ai.matching.entity.enums.InvitationStatus;
 import com.skillsync.skillsync_ai.matching.repo.ApplicationRepository;
 import com.skillsync.skillsync_ai.matching.repo.InvitationRepository;
-import com.skillsync.skillsync_ai.project.repo.ProjectRepository; // Cross-module import for Auth checks!
+import com.skillsync.skillsync_ai.project.ProjectGateway;
+import com.skillsync.skillsync_ai.project.entity.Project;
+import com.skillsync.skillsync_ai.project.entity.ProjectRole;
+import com.skillsync.skillsync_ai.project.entity.enums.MemberStatus;
+import com.skillsync.skillsync_ai.project.entity.enums.ProjectStatus;
+import com.skillsync.skillsync_ai.project.repo.ProjectRepository;
 import com.skillsync.skillsync_ai.project.repo.ProjectRoleRepository;
+import com.skillsync.skillsync_ai.project.repo.TeamMemberRepository;
 import com.skillsync.skillsync_ai.userprofile.entity.StudentProfile;
 import com.skillsync.skillsync_ai.userprofile.repo.StudentProfileRepository;
 import com.skillsync.skillsync_ai.userprofile.repo.StudentSkillRepository;
 import lombok.RequiredArgsConstructor;
-import java.util.stream.Collectors;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -39,10 +45,12 @@ public class TeamMatchingService {
 
     private final ApplicationRepository applicationRepository;
     private final InvitationRepository invitationRepository;
-    private final ProjectRepository projectRepository; // Used ONLY for security lookups
+    private final ProjectRepository projectRepository; // Used for security and capacity lookups
     private final ProjectRoleRepository projectRoleRepository;
+    private final TeamMemberRepository teamMemberRepository;
     private final StudentProfileRepository studentProfileRepository;
     private final StudentSkillRepository studentSkillRepository;
+    private final ProjectGateway projectGateway;
     private final ApplicationEventPublisher eventPublisher;
 
     // --- SECURITY HELPER ---
@@ -61,15 +69,24 @@ public class TeamMatchingService {
 
     @Transactional
     public ApplicationResponse applyToProject(UUID studentId, UUID projectId, UUID roleId, String coverMessage) {
-        // COLLISION CHECK
-        UUID actualOwnerId = projectRepository.findById(projectId).orElseThrow().getOwnerId();
-        if (actualOwnerId.equals(studentId)) {
+        Project project = projectRepository.findByIdForUpdate(projectId)
+                .orElseThrow(() -> new IllegalArgumentException("Project not found."));
+
+        if (project.getOwnerId().equals(studentId)) {
             throw new IllegalStateException("You cannot apply to your own project.");
         }
-        if (invitationRepository.existsByProjectIdAndInvitedUserIdAndStatus(projectId, studentId, InvitationStatus.PENDING)) {
-            throw new IllegalStateException("You already have a pending invitation to this project. Please accept it instead.");
+
+        assertAcceptingRequests(project);
+        assertTeamHasCapacity(project);
+        assertRoleHasCapacity(projectId, roleId);
+
+        if (invitationRepository.existsByProjectIdAndInvitedUserIdAndStatus(
+                projectId, studentId, InvitationStatus.PENDING)) {
+            throw new IllegalStateException(
+                    "You already have a pending invitation to this project. Please accept it instead.");
         }
-        if (applicationRepository.existsByProjectIdAndApplicantUserIdAndStatus(projectId, studentId, ApplicationStatus.PENDING)) {
+        if (applicationRepository.existsByProjectIdAndApplicantUserIdAndStatus(
+                projectId, studentId, ApplicationStatus.PENDING)) {
             throw new IllegalStateException("You already have a pending application for this project.");
         }
 
@@ -78,20 +95,17 @@ public class TeamMatchingService {
                 .status(ApplicationStatus.PENDING).coverMessage(coverMessage)
                 .build();
         Application saved = applicationRepository.save(application);
-        
+
         String applicantName = studentProfileRepository.findByUserId(studentId)
-            .map(com.skillsync.skillsync_ai.userprofile.entity.StudentProfile::getFullName)
-            .orElse("A student");
-        String projectTitle = projectRepository.findById(projectId)
-            .map(com.skillsync.skillsync_ai.project.entity.Project::getTitle)
-            .orElse("your project");
-            
+                .map(StudentProfile::getFullName)
+                .orElse("A student");
+
         eventPublisher.publishEvent(new ApplicationSubmittedEvent(
-                studentId, projectId, actualOwnerId, 
-                applicantName, 
-                projectTitle
+                studentId, projectId, project.getOwnerId(),
+                applicantName,
+                project.getTitle()
         ));
-        
+
         return mapToAppResponse(saved);
     }
 
@@ -100,10 +114,21 @@ public class TeamMatchingService {
         Application application = applicationRepository.findById(applicationId)
                 .orElseThrow(() -> new IllegalArgumentException("Application not found."));
 
-        verifyProjectOwnership(application.getProjectId(), ownerId); // SECURITY CHECK
+        Project project = projectRepository.findByIdForUpdate(application.getProjectId())
+                .orElseThrow(() -> new IllegalArgumentException("Project not found."));
 
+        if (!project.getOwnerId().equals(ownerId)) {
+            throw new SecurityException("You are not the owner of this project.");
+        }
         if (application.getStatus() != ApplicationStatus.PENDING) {
             throw new IllegalStateException("Application has already been decided.");
+        }
+
+        if (accept) {
+            // Runs in this transaction. A full team/role throws and rolls the
+            // decision back instead of leaving an ACCEPTED application with no member.
+            projectGateway.addMember(
+                    project.getId(), application.getProjectRoleId(), application.getApplicantUserId());
         }
 
         application.setStatus(accept ? ApplicationStatus.ACCEPTED : ApplicationStatus.REJECTED);
@@ -112,9 +137,10 @@ public class TeamMatchingService {
 
         Application savedApp = applicationRepository.save(application);
 
-        if (accept) {
-            eventPublisher.publishEvent(new TeamMemberAcceptedEvent(savedApp.getProjectId(), savedApp.getProjectRoleId(), savedApp.getApplicantUserId()));
-        }
+        eventPublisher.publishEvent(new ApplicationDecidedEvent(
+                savedApp.getId(), savedApp.getApplicantUserId(), project.getId(),
+                project.getTitle(), accept));
+
         return mapToAppResponse(savedApp);
     }
 
@@ -155,16 +181,27 @@ public class TeamMatchingService {
 
     @Transactional
     public InvitationResponse inviteStudent(UUID ownerId, UUID projectId, UUID roleId, UUID studentId, String message) {
-        verifyProjectOwnership(projectId, ownerId); // SECURITY CHECK
+        Project project = projectRepository.findByIdForUpdate(projectId)
+                .orElseThrow(() -> new IllegalArgumentException("Project not found."));
 
-        // COLLISION CHECK
+        if (!project.getOwnerId().equals(ownerId)) {
+            throw new SecurityException("You are not the owner of this project.");
+        }
         if (ownerId.equals(studentId)) {
             throw new IllegalStateException("You cannot invite yourself to your own project.");
         }
-        if (applicationRepository.existsByProjectIdAndApplicantUserIdAndStatus(projectId, studentId, ApplicationStatus.PENDING)) {
-            throw new IllegalStateException("This student has already applied to this project. Please review their application.");
+
+        assertAcceptingRequests(project);
+        assertTeamHasCapacity(project);
+        assertRoleHasCapacity(projectId, roleId);
+
+        if (applicationRepository.existsByProjectIdAndApplicantUserIdAndStatus(
+                projectId, studentId, ApplicationStatus.PENDING)) {
+            throw new IllegalStateException(
+                    "This student has already applied to this project. Please review their application.");
         }
-        if (invitationRepository.existsByProjectIdAndInvitedUserIdAndStatus(projectId, studentId, InvitationStatus.PENDING)) {
+        if (invitationRepository.existsByProjectIdAndInvitedUserIdAndStatus(
+                projectId, studentId, InvitationStatus.PENDING)) {
             throw new IllegalStateException("This student already has a pending invitation.");
         }
 
@@ -174,44 +211,66 @@ public class TeamMatchingService {
                 .expiresAt(Instant.now().plus(7, ChronoUnit.DAYS))
                 .build();
         Invitation saved = invitationRepository.save(invitation);
-        
+
         String inviterName = studentProfileRepository.findByUserId(ownerId)
-            .map(com.skillsync.skillsync_ai.userprofile.entity.StudentProfile::getFullName)
-            .orElse("A project owner");
-        String projectTitle = projectRepository.findById(projectId)
-            .map(com.skillsync.skillsync_ai.project.entity.Project::getTitle)
-            .orElse("a project");
-            
+                .map(StudentProfile::getFullName)
+                .orElse("A project owner");
+
         eventPublisher.publishEvent(new InvitationSentEvent(
                 studentId, projectId, ownerId,
                 inviterName,
-                projectTitle
+                project.getTitle()
         ));
-        
+
         return mapToInvResponse(saved);
     }
 
     @Transactional
     public InvitationResponse respondToInvitation(UUID studentId, UUID invitationId, boolean accept) {
-        Invitation invitation = invitationRepository.findById(invitationId).orElseThrow();
-        if (!invitation.getInvitedUserId().equals(studentId)) throw new SecurityException("Unauthorized.");
+        Invitation invitation = invitationRepository.findById(invitationId)
+                .orElseThrow(() -> new IllegalArgumentException("Invitation not found."));
+
+        if (!invitation.getInvitedUserId().equals(studentId)) {
+            throw new SecurityException("Unauthorized.");
+        }
 
         if (invitation.getExpiresAt() != null && invitation.getExpiresAt().isBefore(Instant.now())) {
-            invitation.setStatus(InvitationStatus.EXPIRED);
-            invitationRepository.save(invitation);
             throw new IllegalStateException("This invitation has expired.");
         }
 
-        if (invitation.getStatus() != InvitationStatus.PENDING) throw new IllegalStateException("Invitation is no longer valid.");
+        if (invitation.getStatus() != InvitationStatus.PENDING) {
+            throw new IllegalStateException("Invitation is no longer valid.");
+        }
+
+        Project project = accept
+                ? projectRepository.findByIdForUpdate(invitation.getProjectId())
+                        .orElseThrow(() -> new IllegalArgumentException("Project not found."))
+                : projectRepository.findById(invitation.getProjectId())
+                        .orElseThrow(() -> new IllegalArgumentException("Project not found."));
+
+        if (accept) {
+            if (project.getStatus() != ProjectStatus.RECRUITING) {
+                throw new IllegalStateException("This project is no longer accepting new members.");
+            }
+            // Runs in this transaction. A full team/role throws and rolls the
+            // acceptance back instead of leaving an ACCEPTED invitation with no member.
+            projectGateway.addMember(
+                    project.getId(), invitation.getProjectRoleId(), studentId);
+        }
 
         invitation.setStatus(accept ? InvitationStatus.ACCEPTED : InvitationStatus.DECLINED);
         invitation.setRespondedAt(Instant.now());
 
         Invitation savedInv = invitationRepository.save(invitation);
 
-        if (accept) {
-            eventPublisher.publishEvent(new TeamMemberAcceptedEvent(savedInv.getProjectId(), savedInv.getProjectRoleId(), savedInv.getInvitedUserId()));
-        }
+        String studentName = studentProfileRepository.findByUserId(studentId)
+                .map(StudentProfile::getFullName)
+                .orElse("A student");
+
+        eventPublisher.publishEvent(new InvitationRespondedEvent(
+                savedInv.getId(), project.getOwnerId(), studentId, studentName,
+                project.getId(), project.getTitle(), accept));
+
         return mapToInvResponse(savedInv);
     }
 
@@ -250,6 +309,45 @@ public class TeamMatchingService {
     // scheduled sweep because a periodic database query wakes Neon and keeps
     // the compute from scaling to zero.
 
+    // --- CAPACITY GUARDS ---
+
+    private void assertAcceptingRequests(Project project) {
+        if (project.getStatus() != ProjectStatus.RECRUITING) {
+            throw new IllegalStateException("This project is not accepting new requests.");
+        }
+        if (project.getApplicationDeadline() != null
+                && !project.getApplicationDeadline().isAfter(Instant.now())) {
+            throw new IllegalStateException("The application deadline for this project has passed.");
+        }
+    }
+
+    private void assertTeamHasCapacity(Project project) {
+        if (project.getMaxTeamSize() == null) {
+            return;
+        }
+        long activeMembers = teamMemberRepository.countByProjectIdAndStatus(
+                project.getId(), MemberStatus.ACTIVE);
+        if (activeMembers >= project.getMaxTeamSize()) {
+            throw new IllegalStateException("This project's team is already full.");
+        }
+    }
+
+    private void assertRoleHasCapacity(UUID projectId, UUID roleId) {
+        if (roleId == null) {
+            return;
+        }
+        ProjectRole role = projectRoleRepository.findById(roleId)
+                .orElseThrow(() -> new IllegalArgumentException("Project role not found."));
+        if (!role.getProject().getId().equals(projectId)) {
+            throw new IllegalArgumentException("Role does not belong to this project.");
+        }
+        long filled = teamMemberRepository.countByProjectIdAndProjectRoleIdAndStatus(
+                projectId, roleId, MemberStatus.ACTIVE);
+        if (role.getHeadcount() != null && filled >= role.getHeadcount()) {
+            throw new IllegalStateException("The selected role is already full.");
+        }
+    }
+
     // --- MAPPERS ---
 
     /**
@@ -258,7 +356,7 @@ public class TeamMatchingService {
      */
     private record MatchLookup(
             Map<UUID, StudentProfile> profiles,
-            Map<UUID, com.skillsync.skillsync_ai.project.entity.ProjectRole> roles,
+            Map<UUID, ProjectRole> roles,
             Map<UUID, List<String>> topSkillsByProfile
     ) {
         List<String> topSkills(UUID userId) {
@@ -281,10 +379,10 @@ public class TeamMatchingService {
                 : studentProfileRepository.findAllByUserIdIn(distinctUserIds).stream()
                 .collect(Collectors.toMap(StudentProfile::getUserId, Function.identity()));
 
-        Map<UUID, com.skillsync.skillsync_ai.project.entity.ProjectRole> roles =
+        Map<UUID, ProjectRole> roles =
                 roleIds == null || roleIds.isEmpty() ? Map.of()
                         : projectRoleRepository.findAllByIdIn(roleIds).stream()
-                        .collect(Collectors.toMap(com.skillsync.skillsync_ai.project.entity.ProjectRole::getId, Function.identity()));
+                        .collect(Collectors.toMap(ProjectRole::getId, Function.identity()));
 
         Map<UUID, List<String>> topSkills = profiles.isEmpty() ? Map.of()
                 : studentSkillRepository.findAllByStudentProfileIdIn(
@@ -306,7 +404,7 @@ public class TeamMatchingService {
 
     private ApplicationResponse mapToAppResponse(Application a, MatchLookup lookup) {
         StudentProfile profile = lookup.profiles().get(a.getApplicantUserId());
-        var role = a.getProjectRoleId() != null ? lookup.roles().get(a.getProjectRoleId()) : null;
+        ProjectRole role = a.getProjectRoleId() != null ? lookup.roles().get(a.getProjectRoleId()) : null;
 
         return new ApplicationResponse(
                 a.getId(), a.getProjectId(), a.getProjectRoleId(), role != null ? role.getTitle() : null,
@@ -328,7 +426,7 @@ public class TeamMatchingService {
 
     private InvitationResponse mapToInvResponse(Invitation i, MatchLookup lookup) {
         StudentProfile profile = lookup.profiles().get(i.getInvitedUserId());
-        var role = i.getProjectRoleId() != null ? lookup.roles().get(i.getProjectRoleId()) : null;
+        ProjectRole role = i.getProjectRoleId() != null ? lookup.roles().get(i.getProjectRoleId()) : null;
 
         return new InvitationResponse(
                 i.getId(), i.getProjectId(), i.getProjectRoleId(), role != null ? role.getTitle() : null,

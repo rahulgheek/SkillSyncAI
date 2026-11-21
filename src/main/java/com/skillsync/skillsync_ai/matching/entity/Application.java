@@ -59,6 +59,10 @@ public class Application {
     @Column(name = "decided_by")
     private UUID decidedBy; // The project owner who accepted/rejected it
 
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     // --- Auditing & Soft Delete Fields ---
 
     @CreatedDate

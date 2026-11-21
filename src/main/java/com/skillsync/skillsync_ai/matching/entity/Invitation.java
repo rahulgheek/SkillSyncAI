@@ -62,6 +62,10 @@ public class Invitation {
     @Column(name = "responded_at")
     private Instant respondedAt;
 
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     // --- Auditing & Soft Delete Fields ---
 
     @CreatedDate

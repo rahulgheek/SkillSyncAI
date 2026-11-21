@@ -18,6 +18,13 @@ public class ProjectGatewayImpl implements ProjectGateway {
 
     private final ProjectRepository projectRepository;
     private final TeamMemberRepository teamMemberRepository;
+    private final ProjectManagementService projectManagementService;
+
+    @Override
+    @Transactional
+    public void addMember(UUID projectId, UUID projectRoleId, UUID userId) {
+        projectManagementService.addMemberToTeam(projectId, projectRoleId, userId);
+    }
 
     @Override
     @Transactional(readOnly = true)

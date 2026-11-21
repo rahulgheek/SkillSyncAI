@@ -70,6 +70,15 @@ public class Project {
     @Column(name = "application_deadline")
     private Instant applicationDeadline;
 
+    /**
+     * Optimistic lock. Capacity-sensitive membership changes also take a
+     * pessimistic row lock through ProjectRepository.findByIdForUpdate, but
+     * the version protects edits that do not go through that path.
+     */
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     // --- Auditing & Soft Delete Fields ---
 
     @CreatedDate

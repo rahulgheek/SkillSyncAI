@@ -59,6 +59,10 @@ public class TeamMember {
     @Column(name = "left_at")
     private Instant leftAt;
 
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     // --- Auditing & Soft Delete Fields ---
 
     @CreatedDate

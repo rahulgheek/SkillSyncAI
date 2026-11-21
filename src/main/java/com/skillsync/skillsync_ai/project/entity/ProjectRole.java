@@ -59,6 +59,10 @@ public class ProjectRole {
     @Builder.Default
     private Short filledCount = 0;
 
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     // --- Auditing & Soft Delete Fields ---
 
     @CreatedDate

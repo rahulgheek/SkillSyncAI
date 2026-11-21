@@ -21,11 +21,29 @@ public interface ProjectRepository extends JpaRepository<Project, UUID> {
     // For the "My Projects" dashboard
     Page<Project> findAllByOwnerId(UUID ownerId, Pageable pageable);
 
-    // For the main recruiting feed, filtered by college
-    Page<Project> findAllByCollegeIdAndStatus(UUID collegeId, ProjectStatus status, Pageable pageable);
+    // For the main recruiting feed, filtered by college. Expired deadlines are
+    // hidden lazily instead of relying on a scheduled sweep that would wake Neon.
+    @Query("""
+            SELECT p FROM Project p
+            WHERE p.collegeId = :collegeId
+              AND p.status = :status
+              AND (p.applicationDeadline IS NULL OR p.applicationDeadline > CURRENT_TIMESTAMP)
+            """)
+    Page<Project> findAllByCollegeIdAndStatus(
+            @Param("collegeId") UUID collegeId,
+            @Param("status") ProjectStatus status,
+            Pageable pageable);
 
     // For AI Discovery Batch Processing
-    List<Project> findByCollegeIdAndStatus(UUID collegeId, ProjectStatus status);
+    @Query("""
+            SELECT p FROM Project p
+            WHERE p.collegeId = :collegeId
+              AND p.status = :status
+              AND (p.applicationDeadline IS NULL OR p.applicationDeadline > CURRENT_TIMESTAMP)
+            """)
+    List<Project> findByCollegeIdAndStatus(
+            @Param("collegeId") UUID collegeId,
+            @Param("status") ProjectStatus status);
 
     /**
      * Serialises concurrent generation requests for the same project without a
