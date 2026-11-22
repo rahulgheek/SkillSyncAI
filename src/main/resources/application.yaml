@@ -113,6 +113,10 @@ spring:
 
 server:
   port: ${PORT:8080}
+  # Behind a TLS-terminating proxy, honor X-Forwarded-Proto/Host so the Google
+  # OAuth redirect_uri is built as https://<public-host>/login/oauth2/code/google
+  # instead of the internal http://host:8080 URL.
+  forward-headers-strategy: framework
 
 gemini:
   api:
