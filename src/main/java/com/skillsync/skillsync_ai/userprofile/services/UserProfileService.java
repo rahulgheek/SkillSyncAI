@@ -12,12 +12,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.skillsync.skillsync_ai.common.config.KafkaConfig;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import com.skillsync.skillsync_ai.common.exception.AiServiceException;
 import com.skillsync.skillsync_ai.common.exception.ResourceNotFoundException;
 
 import lombok.extern.slf4j.Slf4j;
@@ -288,29 +294,114 @@ public class UserProfileService {
         String context = contextBuilder.toString();
         
         var response = geminiApiService.generateProfileInsights(context).block();
+        String responseText = geminiApiService.requireText(response, "AI insights");
 
-        if (response != null && response.getExtractedText() != null) {
-            String insightsJson = response.getExtractedText().trim();
-            if (insightsJson.startsWith("```json")) {
-                insightsJson = insightsJson.substring(7);
-            } else if (insightsJson.startsWith("```")) {
-                insightsJson = insightsJson.substring(3);
-            }
-            if (insightsJson.endsWith("```")) {
-                insightsJson = insightsJson.substring(0, insightsJson.length() - 3);
-            }
-            insightsJson = insightsJson.trim();
-            String finalInsightsJson = insightsJson;
-
-            transactionTemplate.executeWithoutResult(status -> {
-                StudentProfile studentProfile = profileRepository.findByUserId(userId).orElseThrow();
-                studentProfile.setAiInsights(finalInsightsJson);
-                studentProfile.setInsightsOutdated(false);
-                profileRepository.save(studentProfile);
-            });
+        Map<String, Object> parsedInsights;
+        try {
+            parsedInsights = objectMapper.readValue(
+                    geminiApiService.normalizeJson(responseText),
+                    new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            log.warn("AI insights response was not valid JSON: {}", e.getMessage());
+            throw new AiServiceException(
+                    "The AI returned an invalid insights response. Please try again.", e);
         }
 
+        String insightsJson = sanitizeInsights(parsedInsights);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            StudentProfile studentProfile = profileRepository.findByUserId(userId).orElseThrow();
+            studentProfile.setAiInsights(insightsJson);
+            studentProfile.setInsightsOutdated(false);
+            profileRepository.save(studentProfile);
+        });
+
         return transactionTemplate.execute(status -> getAggregatedProfile(userId));
+    }
+
+    /**
+     * Keeps only the fields the profile page understands and fills optional
+     * lists with empty values. A malformed model response can therefore never
+     * be persisted and break the profile view.
+     */
+    private String sanitizeInsights(Map<String, Object> parsed) {
+        String careerSummary = asText(parsed.get("careerSummary"));
+        if (careerSummary == null || careerSummary.isBlank()) {
+            throw new AiServiceException(
+                    "The AI insights response did not include a career summary. Please try again.");
+        }
+
+        Map<String, Object> sanitized = new LinkedHashMap<>();
+        sanitized.put("careerSummary", careerSummary);
+        sanitized.put("strengths", toStringList(parsed.get("strengths")));
+        sanitized.put("weaknesses", toStringList(parsed.get("weaknesses")));
+        sanitized.put("skillGaps", toStringList(parsed.get("skillGaps")));
+        sanitized.put("suggestedTechnologies", toStringList(parsed.get("suggestedTechnologies")));
+        sanitized.put("suggestedProjects", toStringList(parsed.get("suggestedProjects")));
+        sanitized.put("recommendedRoles", toStringList(parsed.get("recommendedRoles")));
+        sanitized.put("confidenceScore", confidenceScore(parsed.get("confidenceScore")));
+        sanitized.put("learningRoadmap", roadmapSteps(parsed.get("learningRoadmap")));
+
+        try {
+            return objectMapper.writeValueAsString(sanitized);
+        } catch (JsonProcessingException e) {
+            throw new AiServiceException(
+                    "The AI insights could not be saved. Please try again.", e);
+        }
+    }
+
+    private static String asText(Object value) {
+        return value instanceof String string ? string.trim() : null;
+    }
+
+    private static List<String> toStringList(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+        return list.stream()
+                .map(UserProfileService::asText)
+                .filter(Objects::nonNull)
+                .filter(item -> !item.isBlank())
+                .toList();
+    }
+
+    private static int confidenceScore(Object value) {
+        double score;
+        if (value instanceof Number number) {
+            score = number.doubleValue();
+        } else if (value instanceof String string) {
+            try {
+                score = Double.parseDouble(string.trim());
+            } catch (NumberFormatException e) {
+                return 0;
+            }
+        } else {
+            return 0;
+        }
+        return (int) Math.max(0, Math.min(100, Math.round(score)));
+    }
+
+    private static List<Map<String, String>> roadmapSteps(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+
+        List<Map<String, String>> steps = new ArrayList<>();
+        for (Object item : list) {
+            if (!(item instanceof Map<?, ?> map)) {
+                continue;
+            }
+            String title = asText(map.get("title"));
+            if (title == null || title.isBlank()) {
+                continue;
+            }
+            Map<String, String> step = new LinkedHashMap<>();
+            step.put("title", title);
+            step.put("description", Objects.requireNonNullElse(asText(map.get("description")), ""));
+            step.put("dueDate", Objects.requireNonNullElse(asText(map.get("dueDate")), ""));
+            steps.add(step);
+        }
+        return steps;
     }
     public Map<UUID, String> getAllUserSkillsForMatching() {
         // Projection query: no lazy profile/skill initialisation and no N+1.

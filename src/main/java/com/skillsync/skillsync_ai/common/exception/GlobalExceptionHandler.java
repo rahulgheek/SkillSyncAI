@@ -43,6 +43,15 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error(ex.getMessage()));
     }
 
+    // Handles upstream AI provider failures (quota, timeout, empty/invalid
+    // output). 502 makes it clear the failure is on the provider side while
+    // still returning a user-safe message.
+    @ExceptionHandler(AiServiceException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAiServiceFailure(AiServiceException ex) {
+        log.error("AI service failure: {}", ex.getMessage(), ex);
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(ApiResponse.error(ex.getMessage()));
+    }
+
     // Handles concurrent edits and double decisions caught by @Version.
     @ExceptionHandler(org.springframework.dao.OptimisticLockingFailureException.class)
     public ResponseEntity<ApiResponse<Void>> handleOptimisticLock(

@@ -7,19 +7,21 @@ import com.skillsync.skillsync_ai.ai.gemini.GeminiRequest;
 import com.skillsync.skillsync_ai.ai.gemini.GeminiResponse;
 import com.skillsync.skillsync_ai.common.events.AiSkill;
 import com.skillsync.skillsync_ai.common.events.CandidateProfileForAi;
+import com.skillsync.skillsync_ai.common.exception.AiServiceException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
-import reactor.util.retry.Retry;
 
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -56,11 +58,22 @@ public class GeminiApiService {
     }
 
     public Map<String, Object> parseJsonToMap(String jsonString) {
+        String json = normalizeJson(jsonString);
+        if (json == null) {
+            throw new AiServiceException("The AI returned an empty response. Please try again.");
+        }
         try {
-            return objectMapper.readValue(jsonString, new TypeReference<Map<String, Object>>() {});
+            Map<String, Object> parsed = objectMapper.readValue(
+                    json, new TypeReference<Map<String, Object>>() {});
+            if (parsed == null || parsed.isEmpty()) {
+                throw new AiServiceException("The AI returned an empty JSON object. Please try again.");
+            }
+            return parsed;
+        } catch (AiServiceException e) {
+            throw e;
         } catch (JsonProcessingException e) {
             log.error("Failed to parse Gemini JSON output: {}", e.getMessage());
-            throw new RuntimeException("AI response was not valid JSON format", e);
+            throw new AiServiceException("The AI returned an invalid JSON response. Please try again.", e);
         }
     }
 
@@ -318,20 +331,71 @@ public class GeminiApiService {
 
     // 2. ADD THIS: The parser to handle a JSON Array (List) instead of a JSON Object (Map)
     public List<Map<String, Object>> parseJsonToList(String jsonString) {
+        String json = normalizeJson(jsonString);
+        if (json == null) {
+            throw new AiServiceException("The AI returned an empty response. Please try again.");
+        }
         try {
-            return objectMapper.readValue(jsonString, new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
+            return objectMapper.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             log.error("Failed to parse Gemini JSON output to List: {}", e.getMessage());
-            throw new RuntimeException("AI response was not valid JSON array format", e);
+            throw new AiServiceException("The AI returned an invalid JSON array. Please try again.", e);
         }
     }
 
+    /**
+     * Parses roadmap tasks. The prompt asks for a bare JSON array, but small
+     * model deviations are common, so a wrapper object with a {@code tasks},
+     * {@code steps} or {@code roadmap} array is accepted as well.
+     */
+    @SuppressWarnings("unchecked")
     public List<Map<String, Object>> parseRoadmapSteps(String jsonString) {
+        String json = normalizeJson(jsonString);
+        if (json == null) {
+            throw new AiServiceException("The AI returned an empty roadmap. Please try again.");
+        }
+
         try {
-            return objectMapper.readValue(jsonString, new TypeReference<List<Map<String, Object>>>() {});
+            Object parsed = objectMapper.readValue(json, Object.class);
+            List<?> rawSteps = null;
+
+            if (parsed instanceof List<?> list) {
+                rawSteps = list;
+            } else if (parsed instanceof Map<?, ?> wrapper) {
+                for (String key : List.of("steps", "tasks", "roadmap", "checkpoints", "plan")) {
+                    if (wrapper.get(key) instanceof List<?> list) {
+                        rawSteps = list;
+                        break;
+                    }
+                }
+                if (rawSteps == null) {
+                    rawSteps = wrapper.values().stream()
+                            .filter(List.class::isInstance)
+                            .map(List.class::cast)
+                            .findFirst()
+                            .orElse(null);
+                }
+            }
+
+            if (rawSteps == null) {
+                throw new AiServiceException("The AI roadmap response was not a list of tasks. Please try again.");
+            }
+
+            List<Map<String, Object>> steps = rawSteps.stream()
+                    .filter(Map.class::isInstance)
+                    .map(item -> (Map<String, Object>) item)
+                    .filter(step -> step.get("title") instanceof String title && !title.isBlank())
+                    .toList();
+
+            if (steps.isEmpty()) {
+                throw new AiServiceException("The AI roadmap did not contain any usable tasks. Please try again.");
+            }
+            return steps;
+        } catch (AiServiceException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Failed to parse Gemini Roadmap JSON: {}", e.getMessage());
-            throw new RuntimeException("AI roadmap response was invalid", e);
+            throw new AiServiceException("The AI returned an invalid roadmap. Please try again.", e);
         }
     }
 
@@ -341,11 +405,11 @@ public class GeminiApiService {
      */
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> parseLearningResources(String jsonString) {
-        if (jsonString == null || jsonString.isBlank()) {
+        String trimmed = normalizeJson(jsonString);
+        if (trimmed == null) {
             return List.of();
         }
 
-        String trimmed = jsonString.trim();
         try {
             if (trimmed.startsWith("{")) {
                 Map<String, Object> wrapper = parseJsonToMap(trimmed);
@@ -431,16 +495,27 @@ public class GeminiApiService {
                         .build()))
                 .generationConfig(GeminiRequest.GenerationConfig.builder()
                         .responseMimeType("application/json") // Forces strict JSON output
+                        .maxOutputTokens(8192)
+                        // Thinking tokens share the output budget and can truncate
+                        // structured JSON. These calls need the full budget for the
+                        // answer, so disable thinking for the Flash model.
+                        .thinkingConfig(GeminiRequest.ThinkingConfig.builder()
+                                .thinkingBudget(0)
+                                .build())
                         .build())
                 .build();
     }
 
+    /**
+     * Executes exactly one HTTP request. Retries are deliberately not used:
+     * callers must see the real failure instead of a hidden duplicate request.
+     */
     private Mono<GeminiResponse> executeCall(GeminiRequest request, String context) {
         String finalUrl = geminiApiUrl + "?key=" + geminiApiKey;
         org.springframework.web.util.DefaultUriBuilderFactory factory = new org.springframework.web.util.DefaultUriBuilderFactory();
         factory.setEncodingMode(org.springframework.web.util.DefaultUriBuilderFactory.EncodingMode.NONE);
-        
-        log.info("Before WebClient execution for context: {}", context);
+
+        log.info("Calling Gemini API for context: {}", context);
         return webClientBuilder.uriBuilderFactory(factory)
                 .build()
                 .post()
@@ -448,12 +523,114 @@ public class GeminiApiService {
                 .bodyValue(request)
                 .retrieve()
                 .bodyToMono(GeminiResponse.class)
-                .timeout(Duration.ofSeconds(60)) // Increased timeout to 60s for detailed generation
-                .retryWhen(Retry.backoff(2, Duration.ofSeconds(2)) // Retry twice on 5xx errors
-                        .filter(throwable -> throwable instanceof WebClientResponseException &&
-                                ((WebClientResponseException) throwable).getStatusCode().is5xxServerError()))
-                .doOnSuccess(res -> log.info("After WebClient execution - successfully received Gemini response for {}", context))
+                .timeout(Duration.ofSeconds(60)) // Detailed generations can take a while
+                .onErrorMap(TimeoutException.class,
+                        e -> new AiServiceException(
+                                "The AI service timed out while generating " + context
+                                        + ". Please try again.", e))
+                .onErrorMap(WebClientResponseException.class,
+                        e -> new AiServiceException(providerErrorMessage(e, context), e))
+                .onErrorMap(WebClientRequestException.class,
+                        e -> new AiServiceException(
+                                "Could not reach the AI service while generating " + context
+                                        + ". Please check your connection and try again.", e))
+                .doOnSuccess(res -> log.info("Gemini response received for {}", context))
                 .doOnError(e -> log.error("Failed to call Gemini API for {}: {}", context, e.getMessage()));
+    }
+
+    private String providerErrorMessage(WebClientResponseException ex, String context) {
+        int status = ex.getStatusCode().value();
+        if (status == 429) {
+            return "The AI service rate limit was reached while generating " + context
+                    + ". Please wait a minute and try again.";
+        }
+        if (status == 400 || status == 401 || status == 403) {
+            return "The AI service rejected the " + context
+                    + " request. Please try again or contact support if this continues.";
+        }
+        if (status >= 500) {
+            return "The AI service is temporarily unavailable while generating " + context
+                    + ". Please try again shortly.";
+        }
+        return "The AI service returned an error (" + status + ") while generating "
+                + context + ". Please try again.";
+    }
+
+    /**
+     * Returns the visible response text or throws a user-safe error that
+     * explains why the provider produced no usable answer.
+     */
+    public String requireText(GeminiResponse response, String context) {
+        if (response == null) {
+            throw new AiServiceException(
+                    "The AI service returned no response while generating " + context
+                            + ". Please try again.");
+        }
+
+        String blockReason = response.getBlockReason();
+        if (blockReason != null && !blockReason.isBlank()) {
+            throw new AiServiceException("The AI service blocked the " + context
+                    + " request (" + blockReason + "). Try rephrasing your input.");
+        }
+
+        String finishReason = response.getFinishReason();
+        if ("MAX_TOKENS".equalsIgnoreCase(finishReason)) {
+            throw new AiServiceException("The AI response for " + context
+                    + " was cut off before it finished. Please try again.");
+        }
+
+        String text = response.getExtractedText();
+        if (text == null || text.isBlank()) {
+            if (finishReason != null && !finishReason.isBlank()
+                    && !"STOP".equalsIgnoreCase(finishReason)) {
+                throw new AiServiceException("The AI could not complete the " + context
+                        + " request (" + finishReason + "). Please try again.");
+            }
+            throw new AiServiceException("The AI service returned an empty response for "
+                    + context + ". Please try again.");
+        }
+        return text;
+    }
+
+    /**
+     * Strips markdown code fences and any prose the model may have wrapped
+     * around an otherwise valid JSON payload.
+     */
+    public String normalizeJson(String raw) {
+        if (raw == null) {
+            return null;
+        }
+
+        String trimmed = raw.trim();
+        if (trimmed.startsWith("```")) {
+            int firstNewline = trimmed.indexOf('\n');
+            if (firstNewline >= 0) {
+                trimmed = trimmed.substring(firstNewline + 1);
+            } else {
+                trimmed = trimmed.substring(3);
+            }
+            if (trimmed.endsWith("```")) {
+                trimmed = trimmed.substring(0, trimmed.length() - 3);
+            }
+            trimmed = trimmed.trim();
+        }
+
+        // Some models prepend a sentence such as "Here is the JSON:".
+        int objectStart = trimmed.indexOf('{');
+        int arrayStart = trimmed.indexOf('[');
+        int start;
+        if (objectStart < 0) {
+            start = arrayStart;
+        } else if (arrayStart < 0) {
+            start = objectStart;
+        } else {
+            start = Math.min(objectStart, arrayStart);
+        }
+        if (start > 0) {
+            trimmed = trimmed.substring(start).trim();
+        }
+
+        return trimmed.isBlank() ? null : trimmed;
     }
 
     @Component

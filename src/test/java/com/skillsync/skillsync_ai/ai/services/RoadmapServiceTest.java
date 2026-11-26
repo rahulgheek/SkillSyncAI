@@ -16,6 +16,7 @@ import com.skillsync.skillsync_ai.ai.repo.RoadmapSessionRepository;
 import com.skillsync.skillsync_ai.ai.repo.SkillGapAnalysisRepository;
 import com.skillsync.skillsync_ai.chat.ChatGateway;
 import com.skillsync.skillsync_ai.common.dto.LearningResourceDto;
+import com.skillsync.skillsync_ai.common.exception.AiServiceException;
 import com.skillsync.skillsync_ai.common.events.LearningMaterialsGeneratedEvent;
 import com.skillsync.skillsync_ai.common.events.RoadmapDeactivatedEvent;
 import com.skillsync.skillsync_ai.common.events.RoadmapGeneratedEvent;
@@ -43,9 +44,11 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -100,6 +103,13 @@ class RoadmapServiceTest {
                 transactionTemplate,
                 userProfileGateway,
                 chatGateway);
+
+        // requireText is a pure helper on the real service; mirror it for the mock.
+        lenient().when(geminiApiService.requireText(any(), anyString()))
+                .thenAnswer(invocation -> {
+                    GeminiResponse response = invocation.getArgument(0);
+                    return response == null ? null : response.getExtractedText();
+                });
     }
 
     // TC-ROADMAP-001: A skill-gap session persists the session, roadmap,
@@ -239,9 +249,11 @@ class RoadmapServiceTest {
         when(geminiApiService.generateRoadmap(anyString()))
                 .thenReturn(Mono.error(new RuntimeException("Gemini unavailable")));
 
-        RoadmapSession session = roadmapService.generateRoadmapSessionFromGap(userId, gapId);
+        assertThatThrownBy(() -> roadmapService.generateRoadmapSessionFromGap(userId, gapId))
+                .isInstanceOf(AiServiceException.class)
+                .hasMessageContaining("roadmap");
 
-        assertThat(session.getStatus()).isEqualTo(RoadmapSessionStatus.FAILED);
+        assertThat(sessionRef.get().getStatus()).isEqualTo(RoadmapSessionStatus.FAILED);
         assertThat(roadmapRef.get().getStatus()).isEqualTo(RoadmapStatus.FAILED);
     }
 

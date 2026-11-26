@@ -38,6 +38,11 @@ public class GeminiRequest {
         private String text;
         private FunctionCall functionCall;
         private FunctionResponse functionResponse;
+        /**
+         * Set by Gemini on internal reasoning parts. Request payloads leave it
+         * null, so the field is omitted from the outgoing JSON.
+         */
+        private Boolean thought;
     }
 
     @Data
@@ -92,5 +97,22 @@ public class GeminiRequest {
     public static class GenerationConfig {
         private String responseMimeType;
         private Double temperature;
+        private Integer maxOutputTokens;
+        private ThinkingConfig thinkingConfig;
+    }
+
+    /**
+     * Gemini 2.5 Flash enables "thinking" by default. Thinking tokens share the
+     * output budget, which can truncate structured JSON and leave the app with
+     * unparseable responses. Setting the budget to zero keeps these requests
+     * deterministic and fast.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class ThinkingConfig {
+        private Integer thinkingBudget;
     }
 }

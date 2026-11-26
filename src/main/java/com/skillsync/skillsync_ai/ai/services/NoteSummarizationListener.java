@@ -3,6 +3,7 @@ package com.skillsync.skillsync_ai.ai.services;
 import com.skillsync.skillsync_ai.common.events.NoteSummarizationCompletedEvent;
 import com.skillsync.skillsync_ai.common.events.NoteSummarizationFailedEvent;
 import com.skillsync.skillsync_ai.common.events.NoteSummarizationRequestedEvent;
+import com.skillsync.skillsync_ai.common.exception.AiServiceException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -42,20 +43,20 @@ public class NoteSummarizationListener {
 
             var geminiResponse = geminiApiService.summarizeNote(contentToProcess).block();
 
-            // FIXED: Using getExtractedText() instead of getResponseText()
-            if (geminiResponse == null || geminiResponse.getExtractedText() == null || geminiResponse.getExtractedText().isBlank()) {
-                throw new RuntimeException("Gemini returned an empty response.");
-            }
+            String responseText = geminiApiService.requireText(geminiResponse, "the note summary");
+            Map<String, Object> parsedData = geminiApiService.parseJsonToMap(responseText);
 
-            // FIXED: Using getExtractedText() instead of getResponseText()
-            Map<String, Object> parsedData = geminiApiService.parseJsonToMap(geminiResponse.getExtractedText());
-            String summary = (String) parsedData.get("summary");
+            Object rawSummary = parsedData.get("summary");
+            if (!(rawSummary instanceof String summary) || summary.isBlank()) {
+                throw new AiServiceException(
+                        "The AI did not return a usable note summary. Please try again.");
+            }
 
             // Success. Publish inside a short transaction so the
             // @ApplicationModuleListener in NoteService receives it.
             transactionTemplate.executeWithoutResult(status ->
                     eventPublisher.publishEvent(new NoteSummarizationCompletedEvent(
-                            event.noteId(), event.ownerId(), summary)));
+                            event.noteId(), event.ownerId(), summary.trim())));
 
         } catch (Exception e) {
             // Failure. Same short-transaction rule as above.

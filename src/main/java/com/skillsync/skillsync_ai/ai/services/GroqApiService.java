@@ -3,12 +3,9 @@ package com.skillsync.skillsync_ai.ai.services;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
-import reactor.util.retry.Retry;
 
 import java.time.Duration;
 import java.util.List;
@@ -33,9 +30,10 @@ public class GroqApiService {
     @Value("${groq.api.timeout-seconds:20}")
     private int timeoutSeconds;
 
-    @Value("${groq.api.max-retries:1}")
-    private int maxRetries;
-
+    /**
+     * Executes exactly one HTTP request. Retries are deliberately not used so
+     * a failed call is reported immediately instead of being sent twice.
+     */
     public Mono<String> analyzeBatchMatch(String prompt) {
         if (groqApiKey == null || groqApiKey.isBlank()) {
             return Mono.error(new IllegalStateException("GROQ_API_KEY is not configured"));
@@ -50,7 +48,7 @@ public class GroqApiService {
                 "response_format", Map.of("type", "json_object")
         );
 
-        Mono<String> call = webClientBuilder.build()
+        return webClientBuilder.build()
                 .post()
                 .uri(groqApiUrl)
                 .header("Authorization", "Bearer " + groqApiKey)
@@ -59,23 +57,8 @@ public class GroqApiService {
                 .retrieve()
                 .bodyToMono(Map.class)
                 .map(this::extractContent)
-                // The timeout is per attempt. With one retry the worst case is
-                // roughly 2 x timeout, which stays well below the HTTP client
-                // and reverse-proxy limits.
                 .timeout(Duration.ofSeconds(Math.max(1, timeoutSeconds)))
                 .doOnError(e -> log.error("Failed to call Groq API: {}", e.getMessage()));
-
-        if (maxRetries <= 0) {
-            return call;
-        }
-
-        return call.retryWhen(Retry.backoff(maxRetries, Duration.ofSeconds(1))
-                .maxBackoff(Duration.ofSeconds(5))
-                .jitter(0.5)
-                .filter(this::isRetryable)
-                .doBeforeRetry(signal -> log.warn(
-                        "Retrying Groq call ({}/{}) after: {}",
-                        signal.totalRetries() + 1, maxRetries, signal.failure().getMessage())));
     }
 
     @SuppressWarnings("unchecked")
@@ -94,17 +77,5 @@ public class GroqApiService {
         }
         Object content = message.get("content");
         return content == null ? "" : content.toString();
-    }
-
-    private boolean isRetryable(Throwable throwable) {
-        if (throwable instanceof IllegalStateException) {
-            return false;
-        }
-        if (throwable instanceof WebClientResponseException responseException) {
-            HttpStatusCode status = responseException.getStatusCode();
-            return status.is5xxServerError() || status.value() == 429;
-        }
-        // Timeouts and transient network failures are worth one more attempt.
-        return true;
     }
 }

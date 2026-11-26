@@ -131,7 +131,6 @@ groq:
     # redeploy. Structured scoring does not need the largest model.
     model: ${GROQ_API_MODEL:llama-3.1-70b-versatile}
     timeout-seconds: ${GROQ_API_TIMEOUT_SECONDS:20}
-    max-retries: ${GROQ_API_MAX_RETRIES:1}
 
 matching:
   shortlist:

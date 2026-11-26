@@ -23,6 +23,7 @@ import com.skillsync.skillsync_ai.common.events.ProfileUpdatedEvent;
 import com.skillsync.skillsync_ai.common.events.RoadmapGeneratedEvent;
 import com.skillsync.skillsync_ai.common.events.TodoCompletedEvent;
 import com.skillsync.skillsync_ai.common.events.TodoReopenedEvent;
+import com.skillsync.skillsync_ai.common.exception.AiServiceException;
 import com.skillsync.skillsync_ai.common.exception.ResourceNotFoundException;
 import com.skillsync.skillsync_ai.common.exception.UnauthorizedActionException;
 import com.skillsync.skillsync_ai.todo.dto.SubtaskDto;
@@ -117,12 +118,8 @@ public class RoadmapService {
 
         try {
             var response = geminiApiService.generateRoadmap(init.missingSkills()).block();
-
-            if (response == null || response.getExtractedText() == null) {
-                throw new RuntimeException("No response from Gemini");
-            }
-
-            List<Map<String, Object>> steps = geminiApiService.parseRoadmapSteps(response.getExtractedText());
+            String responseText = geminiApiService.requireText(response, "the roadmap");
+            List<Map<String, Object>> steps = geminiApiService.parseRoadmapSteps(responseText);
 
             transactionTemplate.executeWithoutResult(status -> {
                 Roadmap roadmap = roadmapRepository.findById(init.roadmapId())
@@ -141,6 +138,7 @@ public class RoadmapService {
         } catch (Exception e) {
             log.error("Failed to generate checkpoints for roadmap session {}", init.sessionId(), e);
             markSessionFailed(init.sessionId(), init.roadmapId());
+            throw roadmapFailure(e);
         }
 
         return roadmapSessionRepository.findById(init.sessionId())
@@ -183,14 +181,19 @@ public class RoadmapService {
 
         String chatInsights = "No recent chats.";
         if (!recentChats.isEmpty()) {
-            var chatAnalysisRes = geminiApiService.analyzeChatHistoryForRoadmap(chatTranscript).block();
-            if (chatAnalysisRes != null && chatAnalysisRes.getExtractedText() != null) {
-                try {
-                    var parsed = geminiApiService.parseJsonToMap(chatAnalysisRes.getExtractedText());
-                    chatInsights = (String) parsed.getOrDefault("insights", chatInsights);
-                } catch (Exception e) {
-                    log.warn("Failed to parse chat insights JSON", e);
+            // Chat history is optional context. A failure here must not block
+            // the roadmap itself, so this call is best-effort.
+            try {
+                var chatAnalysisRes = geminiApiService.analyzeChatHistoryForRoadmap(chatTranscript).block();
+                String chatAnalysisText = geminiApiService.requireText(
+                        chatAnalysisRes, "the chat history analysis");
+                var parsed = geminiApiService.parseJsonToMap(chatAnalysisText);
+                Object insights = parsed.get("insights");
+                if (insights instanceof String value && !value.isBlank()) {
+                    chatInsights = value.trim();
                 }
+            } catch (Exception e) {
+                log.warn("Skipping chat insights for roadmap generation: {}", e.getMessage());
             }
         }
 
@@ -215,16 +218,19 @@ public class RoadmapService {
             var currResponse = geminiApiService
                     .generateCurriculum(requestedRole, profileContext, chatInsights, knowledgeGaps, "[]")
                     .block();
-            if (currResponse == null || currResponse.getExtractedText() == null) {
-                throw new RuntimeException("No response from Gemini");
-            }
+            String currText = geminiApiService.requireText(
+                    currResponse, "the roadmap curriculum");
+            var currParsed = geminiApiService.parseJsonToMap(currText);
 
-            var currParsed = geminiApiService.parseJsonToMap(currResponse.getExtractedText());
-            String recRole = (String) currParsed.getOrDefault("recommendedRole", requestedRole);
-            List<String> curriculumList = (List<String>) currParsed.get("curriculum");
+            Object rawRole = currParsed.get("recommendedRole");
+            String recRole = rawRole instanceof String value && !value.isBlank()
+                    ? value.trim()
+                    : requestedRole;
+            List<String> curriculumList = extractStringList(currParsed.get("curriculum"));
 
-            if (curriculumList == null || curriculumList.isEmpty()) {
-                throw new RuntimeException("AI failed to generate curriculum");
+            if (curriculumList.isEmpty()) {
+                throw new AiServiceException(
+                        "The AI did not return any curriculum topics. Please try again.");
             }
 
             ObjectMapper mapper = new ObjectMapper();
@@ -235,10 +241,9 @@ public class RoadmapService {
             var tasksResponse = geminiApiService
                     .generateTopicTasks(curriculumList.get(0), recRole, "[]", profileContext)
                     .block();
-            if (tasksResponse == null || tasksResponse.getExtractedText() == null) {
-                throw new RuntimeException("No task response from Gemini");
-            }
-            List<Map<String, Object>> steps = geminiApiService.parseRoadmapSteps(tasksResponse.getExtractedText());
+            String tasksText = geminiApiService.requireText(
+                    tasksResponse, "the roadmap tasks");
+            List<Map<String, Object>> steps = geminiApiService.parseRoadmapSteps(tasksText);
 
             transactionTemplate.executeWithoutResult(status -> {
                 RoadmapSession managedSession = roadmapSessionRepository.findById(session.getId())
@@ -277,6 +282,7 @@ public class RoadmapService {
         } catch (Exception e) {
             log.error("Failed to generate custom roadmap session for user {}", userId, e);
             saveFailedCustomRoadmap(session, requestedRole);
+            throw roadmapFailure(e);
         }
 
         return roadmapSessionRepository.findById(session.getId())
@@ -671,6 +677,44 @@ public class RoadmapService {
 
     private static String normalize(String value, String fallback) {
         return value != null && !value.isBlank() ? value.trim() : fallback;
+    }
+
+    /**
+     * Accepts the shapes a model commonly uses for a topic list: plain strings
+     * or objects with a title/topic/name field.
+     */
+    private static List<String> extractStringList(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+
+        List<String> result = new ArrayList<>();
+        for (Object item : list) {
+            String text = null;
+            if (item instanceof String string) {
+                text = string;
+            } else if (item instanceof Map<?, ?> map) {
+                for (String key : List.of("title", "topic", "name", "milestone")) {
+                    if (map.get(key) instanceof String string && !string.isBlank()) {
+                        text = string;
+                        break;
+                    }
+                }
+            }
+            if (text != null && !text.isBlank()) {
+                result.add(text.trim());
+            }
+        }
+        return result;
+    }
+
+    private static AiServiceException roadmapFailure(Exception e) {
+        if (e instanceof AiServiceException ai) {
+            return new AiServiceException(
+                    "We could not generate this roadmap. " + ai.getMessage(), ai);
+        }
+        return new AiServiceException(
+                "We could not generate this roadmap right now. Please try again.", e);
     }
 
     private record RoadmapInit(UUID sessionId, UUID roadmapId, String missingSkills) {
