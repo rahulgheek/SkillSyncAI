@@ -129,7 +129,9 @@ groq:
     key: ${GROQ_API_KEY}
     # The model is configurable so the scoring model can be swapped without a
     # redeploy. Structured scoring does not need the largest model.
-    model: ${GROQ_API_MODEL:llama-3.1-70b-versatile}
+    # Groq decommissioned llama-3.1-70b-versatile; gpt-oss-120b is the current
+    # production model and supports response_format=json_object.
+    model: ${GROQ_API_MODEL:openai/gpt-oss-120b}
     timeout-seconds: ${GROQ_API_TIMEOUT_SECONDS:20}
 
 matching:

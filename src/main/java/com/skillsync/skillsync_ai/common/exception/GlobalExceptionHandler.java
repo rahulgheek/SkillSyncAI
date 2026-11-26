@@ -22,6 +22,16 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error(ex.getMessage()));
     }
 
+    // Handles requests for endpoints that no longer exist (for example an old
+    // EventSource client calling the removed SSE notification stream). An empty
+    // 404 avoids content negotiation failing against Accept: text/event-stream.
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<Void> handleNoResource(
+            org.springframework.web.servlet.resource.NoResourceFoundException ex) {
+        log.debug("No handler for {} {}", ex.getHttpMethod(), ex.getResourcePath());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+    }
+
     // Handles 403s (e.g., Trying to accept an application for a project you don't own)
     @ExceptionHandler({UnauthorizedActionException.class, SecurityException.class})
     public ResponseEntity<ApiResponse<Void>> handleUnauthorized(RuntimeException ex) {
