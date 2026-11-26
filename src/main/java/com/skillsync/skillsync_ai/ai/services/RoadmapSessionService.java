@@ -92,7 +92,17 @@ public class RoadmapSessionService {
     @Transactional(readOnly = true)
     public RoadmapSessionSummaryResponse getMostRecentViewedSession(UUID userId) {
         Optional<RoadmapSession> recent =
-                sessionRepository.findFirstByUserIdAndLastViewedAtIsNotNullOrderByLastViewedAtDesc(userId);
+                sessionRepository.findFirstByUserIdAndStatusNotAndLastViewedAtIsNotNullOrderByLastViewedAtDesc(
+                        userId, RoadmapSessionStatus.FAILED);
+
+        if (recent.isEmpty()) {
+            recent = sessionRepository.findFirstByUserIdAndStatusNotOrderByCreatedAtDesc(
+                    userId, RoadmapSessionStatus.FAILED);
+        }
+
+        if (recent.isEmpty()) {
+            recent = sessionRepository.findFirstByUserIdAndLastViewedAtIsNotNullOrderByLastViewedAtDesc(userId);
+        }
 
         if (recent.isEmpty()) {
             recent = sessionRepository.findFirstByUserIdOrderByCreatedAtDesc(userId);
@@ -158,8 +168,16 @@ public class RoadmapSessionService {
 
     private RoadmapSessionDetailResponse loadDetailAndMarkViewed(UUID userId, UUID sessionId) {
         RoadmapSession session = getOwnedSession(userId, sessionId);
-        session.setLastViewedAt(Instant.now());
-        session = sessionRepository.save(session);
+
+        // Clients poll this endpoint while a roadmap is being generated. Only
+        // write lastViewedAt when it is meaningfully stale so polling does not
+        // turn into a write on every request.
+        Instant now = Instant.now();
+        if (session.getLastViewedAt() == null
+                || session.getLastViewedAt().isBefore(now.minusSeconds(30))) {
+            session.setLastViewedAt(now);
+            session = sessionRepository.save(session);
+        }
 
         List<Roadmap> roadmaps = loadRoadmaps(session.getId());
         List<RoadmapSessionDetailResponse.RoadmapDetail> roadmapDetails = roadmaps.stream()

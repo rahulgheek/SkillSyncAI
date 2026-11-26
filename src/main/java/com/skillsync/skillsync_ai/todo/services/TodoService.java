@@ -21,6 +21,8 @@ import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.time.Instant;
 import java.util.List;
@@ -124,10 +126,20 @@ public class TodoService {
     // MODULITH EVENT LISTENERS
     // ==========================================
 
-    @ApplicationModuleListener
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    /**
+     * Creates the task copy of every checkpoint in the same transaction as the
+     * roadmap. Running before commit (instead of as an async module listener)
+     * means the session response already contains its tasks, so the roadmap and
+     * the task list can never be observed out of sync.
+     */
+    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
+    @Transactional(propagation = Propagation.MANDATORY)
     public void onRoadmapGenerated(RoadmapGeneratedEvent event) {
         log.info("Auto-generating Todos from AI Roadmap for User: {}", event.userId());
+
+        if (event.checkpoints() == null || event.checkpoints().isEmpty()) {
+            return;
+        }
 
         // 1. Extract all incoming checkpoint IDs
         List<UUID> incomingIds = event.checkpoints().stream()

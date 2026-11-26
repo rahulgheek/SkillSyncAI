@@ -27,8 +27,18 @@ public interface RoadmapSessionRepository extends JpaRepository<RoadmapSession, 
     Optional<RoadmapSession> findFirstByUserIdAndLastViewedAtIsNotNullOrderByLastViewedAtDesc(UUID userId);
 
     /**
+     * Most recently opened session that did not fail. A failed generation must
+     * not replace the last working path as the default workspace.
+     */
+    Optional<RoadmapSession> findFirstByUserIdAndStatusNotAndLastViewedAtIsNotNullOrderByLastViewedAtDesc(
+            UUID userId, RoadmapSessionStatus status);
+
+    /**
      * Fallback for users who have never opened a session (for example accounts
      * created before view tracking was introduced).
      */
     Optional<RoadmapSession> findFirstByUserIdOrderByCreatedAtDesc(UUID userId);
+
+    Optional<RoadmapSession> findFirstByUserIdAndStatusNotOrderByCreatedAtDesc(
+            UUID userId, RoadmapSessionStatus status);
 }

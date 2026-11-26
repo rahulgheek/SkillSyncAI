@@ -44,6 +44,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -186,6 +187,28 @@ class RoadmapSessionServiceTest {
         assertThat(response.progress().progressPercentage()).isZero();
     }
 
+    // TC-SESSION-003B: Polling an already-viewed session must not write
+    // lastViewedAt on every request.
+    @Test
+    void getSessionDetail_recentlyViewed_doesNotSave() {
+        UUID userId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID roadmapId = UUID.randomUUID();
+        Instant justViewed = Instant.now().minusSeconds(5);
+
+        RoadmapSession session = session(sessionId, userId, "Path to Backend Developer", justViewed);
+        Roadmap roadmap = roadmap(session, roadmapId, List.of());
+
+        when(sessionRepository.findByIdAndUserId(sessionId, userId)).thenReturn(Optional.of(session));
+        when(roadmapRepository.findAllBySessionIdOrderByCreatedAtAsc(sessionId))
+                .thenReturn(List.of(roadmap));
+
+        RoadmapSessionDetailResponse response = service.getSessionDetail(userId, sessionId);
+
+        assertThat(response.lastViewedAt()).isEqualTo(justViewed);
+        verify(sessionRepository, never()).save(any(RoadmapSession.class));
+    }
+
     // TC-SESSION-004: A session owned by another user is reported as not found.
     @Test
     void getSessionDetail_missingSession_throwsNotFound() {
@@ -199,14 +222,16 @@ class RoadmapSessionServiceTest {
                 .hasMessage("Roadmap session not found");
     }
 
-    // TC-SESSION-005: The dashboard uses the most recently viewed session.
+    // TC-SESSION-005: The dashboard uses the most recently viewed session that
+    // did not fail, so a failed generation never replaces the last working path.
     @Test
-    void getMostRecentViewedSession_usesLatestViewed() {
+    void getMostRecentViewedSession_usesLatestViewedNonFailed() {
         UUID userId = UUID.randomUUID();
         UUID sessionId = UUID.randomUUID();
         RoadmapSession session = session(sessionId, userId, "Latest viewed", Instant.now());
 
-        when(sessionRepository.findFirstByUserIdAndLastViewedAtIsNotNullOrderByLastViewedAtDesc(userId))
+        when(sessionRepository.findFirstByUserIdAndStatusNotAndLastViewedAtIsNotNullOrderByLastViewedAtDesc(
+                userId, RoadmapSessionStatus.FAILED))
                 .thenReturn(Optional.of(session));
         when(roadmapRepository.findAllBySessionIdOrderByCreatedAtAsc(sessionId)).thenReturn(List.of());
         when(todoGateway.getTaskMetricsForSessions(userId, List.of(sessionId)))
@@ -220,16 +245,16 @@ class RoadmapSessionServiceTest {
         assertThat(response.completedTasks()).isEqualTo(1);
     }
 
-    // TC-SESSION-006: Accounts without a viewed session fall back to the newest session.
+    // TC-SESSION-006: Accounts without a viewed session fall back to the newest
+    // session that did not fail.
     @Test
     void getMostRecentViewedSession_fallsBackToLatestCreated() {
         UUID userId = UUID.randomUUID();
         UUID sessionId = UUID.randomUUID();
         RoadmapSession session = session(sessionId, userId, "Newest created", null);
 
-        when(sessionRepository.findFirstByUserIdAndLastViewedAtIsNotNullOrderByLastViewedAtDesc(userId))
-                .thenReturn(Optional.empty());
-        when(sessionRepository.findFirstByUserIdOrderByCreatedAtDesc(userId))
+        when(sessionRepository.findFirstByUserIdAndStatusNotOrderByCreatedAtDesc(
+                userId, RoadmapSessionStatus.FAILED))
                 .thenReturn(Optional.of(session));
         when(roadmapRepository.findAllBySessionIdOrderByCreatedAtAsc(sessionId)).thenReturn(List.of());
         when(todoGateway.getTaskMetricsForSessions(userId, List.of(sessionId))).thenReturn(Map.of());
@@ -244,11 +269,6 @@ class RoadmapSessionServiceTest {
     @Test
     void getMostRecentViewedSession_noSessions_returnsNull() {
         UUID userId = UUID.randomUUID();
-
-        when(sessionRepository.findFirstByUserIdAndLastViewedAtIsNotNullOrderByLastViewedAtDesc(userId))
-                .thenReturn(Optional.empty());
-        when(sessionRepository.findFirstByUserIdOrderByCreatedAtDesc(userId))
-                .thenReturn(Optional.empty());
 
         assertThat(service.getMostRecentViewedSession(userId)).isNull();
     }
